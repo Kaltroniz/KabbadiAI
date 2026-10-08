@@ -3,125 +3,110 @@
 import React from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
+const ICON: Record<string, string> = {
+  motherboard: "🧩", ram_stick: "💾", mobile_pcb: "📱", li_ion_battery: "🔋", alkaline_battery: "🪫", copper_wire: "➰",
+  charger_adapter: "🔌", hard_drive: "💽", aluminium_heatsink: "🔩", screen: "🖥️", cfl_or_tube_light: "💡",
+  router_or_modem: "📡", remote: "📺", other: "📦",
+};
+
 export default function ResultDisplay({ result, onRetake }: { result: any; onRetake: () => void }) {
-  const { t, lang } = useLanguage();
-  const name = (c: string) => {
-    const k = "c_" + c;
-    const v = t(k as any);
-    return v === k ? c.replace(/_/g, " ") : v;
-  };
-  const speak = (text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = lang === "hi" ? "hi-IN" : "en-IN";
-    window.speechSynthesis.speak(u);
-  };
-  const Listen = ({ text }: { text: string }) => (
-    <button onClick={() => speak(text)} className="px-3 py-1 rounded-full bg-slate-800 text-slate-200 text-sm" aria-label={t("listen")}>
-      🔊 {t("listen")}
-    </button>
+  const { t, speak } = useLanguage();
+  const name = (c: string) => { const v = t("c_" + c); return v === "c_" + c ? c.replace(/_/g, " ") : v; };
+  const Speak = ({ text }: { text: string }) => (
+    <button onClick={() => speak(text)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-white/90 text-stone-900 text-xl font-bold">🔊 {t("listen")}</button>
   );
 
-  if (result.type === "clarify") {
+  if (result.type === "clarify" || result.type === "error") {
+    const msg = t(result.type === "error" ? "scanFailed" : "errorLowConfidence");
     return (
-      <div className="glass-card flex flex-col items-center text-center gap-4 animate-fade-in">
-        <div className="text-5xl">📷</div>
-        <p className="text-slate-200 font-medium text-lg">{t("errorLowConfidence")}</p>
-        <Listen text={t("errorLowConfidence")} />
-        <button onClick={onRetake} className="w-full py-4 bg-emerald-600 text-white rounded-2xl text-lg font-semibold">{t("retake")}</button>
+      <div className="card flex flex-col items-center text-center gap-4 animate-fade-in">
+        <div className="text-6xl">{result.type === "error" ? "📶" : "📷"}</div>
+        <p className="text-xl font-semibold">{msg}</p>
+        <Speak text={msg} />
+        <button onClick={onRetake} className="btn bg-emerald-700 text-white">{t("retake")}</button>
       </div>
     );
   }
 
   const lo = Math.round(result.total_min_inr || 0), hi = Math.round(result.total_max_inr || 0);
-  const hazards: any[] = result.hazard_messages || [];
-  const hazardText = [...hazards.map((h) => h.message), hazards.length ? result.general_warning : ""].filter(Boolean).join(" ");
+  const codes: string[] = (result.hazard_messages || []).map((h: any) => h.hazard_code);
+  const hazardTexts = (result.hazard_messages || []).map((h: any) => { const v = t("h_" + h.hazard_code); return v === "h_" + h.hazard_code ? h.message : v; });
+  const hazardSpeech = [...hazardTexts, codes.length ? t("g_general") : ""].filter(Boolean).join(" ");
   const summary = `${t("indicativeValue")}: ₹${lo} ${t("to")} ₹${hi}.`;
-  const verdictKey = result.verdict === "low" ? "verdictLow" : result.verdict === "high" ? "verdictHigh" : "verdictFair";
+  const V: Record<string, [string, string, string]> = {
+    low: ["verdictLow", "bg-red-700", "😟"], fair: ["verdictFair", "bg-emerald-700", "🙂"], high: ["verdictHigh", "bg-sky-700", "🤔"] };
 
-  const shareText = [
-    `KabadiAI: ${summary}`,
+  const shareText = [`KabadiAI: ${summary}`,
     ...(result.line_items || []).map((i: any) => `${name(i.component)} x${i.count}: ~${i.est_weight_g} g`),
-    ...hazards.map((h) => "⚠ " + h.message),
-    t("disclaimer"),
-  ].join("\n");
+    ...hazardTexts.map((h: string) => "⚠ " + h), t("disclaimer")].join("\n");
   const share = async () => {
-    try {
-      if (navigator.share) { await navigator.share({ title: "KabadiAI", text: shareText }); return; }
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
-    }
+    try { if (navigator.share) { await navigator.share({ title: "KabadiAI", text: shareText }); return; } }
+    catch (e: any) { if (e?.name === "AbortError") return; }
     window.open("https://wa.me/?text=" + encodeURIComponent(shareText), "_blank");
   };
 
   return (
-    <div className="flex flex-col gap-5 w-full animate-fade-in pb-8">
-      {result.mock && (
-        <div className="bg-amber-900/80 border border-amber-400/60 text-amber-100 rounded-xl p-3 text-center font-bold">{t("mockBanner")}</div>
-      )}
+    <div className="flex flex-col gap-5 pb-8 animate-fade-in">
+      {result.mock && <div className="rounded-xl bg-amber-300 text-stone-900 p-3 text-center font-extrabold">{t("mockBanner")}</div>}
 
-      {hazards.length > 0 && (
-        <div className="bg-red-950/90 border border-red-500/60 rounded-2xl p-4">
-          <h3 className="text-red-300 font-bold text-lg mb-2">⚠ {t("hazardsDetected")}</h3>
-          <ul className="list-disc list-inside text-red-100 space-y-1">
-            {hazards.map((h, i) => <li key={i}>{h.message}</li>)}
-          </ul>
-          <p className="text-red-200 text-sm mt-2">{result.general_warning}</p>
-          <div className="mt-3"><Listen text={hazardText} /></div>
+      {codes.length > 0 && (
+        <div className="rounded-2xl bg-red-700 text-white p-5">
+          <h3 className="text-2xl font-extrabold mb-2">⚠ {t("hazardsDetected")}</h3>
+          <ul className="space-y-2 text-xl">{hazardTexts.map((h: string, i: number) => <li key={i}>• {h}</li>)}</ul>
+          <p className="mt-3 text-lg opacity-95">{t("g_general")}</p>
+          <div className="mt-4"><Speak text={hazardSpeech} /></div>
         </div>
       )}
 
-      <div className="glass-card bg-slate-900/80">
-        <h2 className="text-slate-400 text-sm font-medium uppercase tracking-wider mb-1">{t("indicativeValue")}</h2>
-        <div className="text-4xl font-black text-gradient mb-3">₹{lo} - ₹{hi}</div>
-        <Listen text={summary} />
-        {result.verdict && (
-          <div className="mt-4 px-3 py-2 bg-slate-800 rounded-lg text-sm font-medium text-emerald-300 border border-emerald-500/20">{t(verdictKey as any)}</div>
-        )}
-        <div className="border-t border-slate-700/50 pt-4 mt-4">
-          <h3 className="text-slate-300 font-semibold mb-3 text-sm uppercase tracking-wide">{t("itemsFound")}</h3>
-          <div className="space-y-3">
-            {(result.line_items || []).map((item: any, i: number) => (
-              <div key={i} className="flex justify-between items-center">
-                <div>
-                  <span className="text-slate-100">{name(item.component)}</span>
-                  <span className="text-slate-500 text-sm"> x{item.count} · ~{item.est_weight_g} g</span>
-                </div>
-                <div className="text-slate-300 font-mono text-sm">{item.hazardous ? "—" : `₹${Math.round(item.min_inr)}-${Math.round(item.max_inr)}`}</div>
+      <div className="card">
+        <div className="text-stone-500 font-semibold">{t("indicativeValue")}</div>
+        <div className="text-5xl font-black text-emerald-800 my-2">₹{lo}–{hi}</div>
+        <button onClick={() => speak(summary)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-stone-200 text-xl font-bold">🔊 {t("listen")}</button>
+      </div>
+
+      {result.verdict && V[result.verdict] && (
+        <div className={`rounded-2xl text-white p-5 flex items-center gap-4 ${V[result.verdict][1]}`}>
+          <span className="text-5xl">{V[result.verdict][2]}</span>
+          <p className="text-xl font-bold flex-1">{t(V[result.verdict][0])}</p>
+          <button onClick={() => speak(t(V[result.verdict][0]))} aria-label={t("listen")} className="w-14 h-14 rounded-full bg-white/90 text-2xl">🔊</button>
+        </div>
+      )}
+
+      <div className="card">
+        <h3 className="font-bold text-lg mb-3">{t("itemsFound")}</h3>
+        <div className="space-y-3">
+          {(result.line_items || []).map((it: any, i: number) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-4xl w-12 text-center">{ICON[it.component] || "📦"}</span>
+              <div className="flex-1">
+                <div className="text-lg font-semibold">{name(it.component)} <span className="text-stone-500 font-normal">x{it.count}</span></div>
+                <div className="text-stone-500 text-sm">~{it.est_weight_g} g</div>
               </div>
-            ))}
-          </div>
+              <div className="text-lg font-bold">{it.hazardous ? "⚠" : `₹${Math.round(it.min_inr)}–${Math.round(it.max_inr)}`}</div>
+            </div>
+          ))}
         </div>
       </div>
 
       <div className="flex gap-3">
-        <button onClick={share} className="flex-1 bg-emerald-600 text-white font-semibold py-4 rounded-2xl text-lg">{t("shareWhatsApp")}</button>
-        <button onClick={onRetake} className="bg-slate-800 text-slate-200 py-4 px-5 rounded-2xl font-medium">{t("retake")}</button>
+        <button onClick={share} className="btn bg-green-600 text-white flex-1">💬 {t("shareWhatsApp")}</button>
+        <button onClick={onRetake} className="btn bg-stone-800 text-white !w-auto px-6">📷</button>
       </div>
 
       {result.recyclers?.length > 0 && (
         <div>
-          <h3 className="text-slate-300 font-semibold mb-3">📍 {t("nearestRecyclers")}</h3>
+          <h3 className="font-bold text-lg mb-3">📍 {t("nearestRecyclers")}</h3>
           <div className="space-y-3">
             {result.recyclers.map((r: any) => (
-              <a key={r.id} href={r.directions_url} target="_blank" rel="noopener noreferrer" className="block glass-card !p-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-slate-100 font-medium">{r.name}</h4>
-                    <p className="text-slate-500 text-xs mt-1">{r.address}</p>
-                  </div>
-                  <div className="text-right shrink-0 ml-4">
-                    <div className="text-blue-400 font-bold">{r.distance_km}</div>
-                    <div className="text-slate-500 text-[10px] uppercase">{t("kmAway")}</div>
-                  </div>
-                </div>
+              <a key={r.id} href={r.directions_url} target="_blank" rel="noopener noreferrer" className="card !p-4 flex items-center gap-3 block">
+                <div className="flex-1"><div className="font-bold text-lg">{r.name}</div><div className="text-stone-500 text-sm">{r.address}</div></div>
+                <div className="text-right"><div className="text-2xl font-black text-sky-700">{r.distance_km}</div><div className="text-xs text-stone-500">{t("kmAway")}</div></div>
               </a>
             ))}
           </div>
         </div>
       )}
-      <p className="text-xs text-slate-500 text-center pb-8 max-w-[300px] mx-auto">{t("disclaimer")}</p>
+      <p className="text-xs text-stone-500 text-center">{t("disclaimer")}</p>
     </div>
   );
 }

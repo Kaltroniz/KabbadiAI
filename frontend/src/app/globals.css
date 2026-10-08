@@ -2,69 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 240, 244, 248;
-  --background-start-rgb: 15, 23, 42;
-  --background-end-rgb: 2, 6, 23;
-  --primary: 16, 185, 129; /* Emerald 500 */
-}
+body { font-size: 18px; background: #fafaf9; color: #1c1917; -webkit-tap-highlight-color: transparent; }
+button { min-height: 56px; }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-  background-attachment: fixed;
-  font-family: 'Inter', sans-serif;
-  min-height: 100vh;
-}
-
-/* Glassmorphism utilities */
 @layer components {
-  .glass {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-  }
-
-  .glass-card {
-    @apply glass rounded-2xl p-6 transition-all duration-300;
-  }
-
-  .glass-card:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    transform: translateY(-2px);
-  }
+  .card { @apply bg-white rounded-2xl border border-stone-200 shadow-sm p-5; }
+  .btn { @apply w-full rounded-2xl font-bold text-xl min-h-[64px] transition active:scale-[0.98]; }
 }
 
-/* Gradients */
-.text-gradient {
-  background: linear-gradient(135deg, #34d399, #059669);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Animations */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
-}
-
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
-  50% { box-shadow: 0 0 25px rgba(16, 185, 129, 0.5); }
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s infinite;
-}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fadeIn 0.35s ease-out forwards; }

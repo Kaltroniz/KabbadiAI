@@ -1,37 +1,21 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 
-const inter = Inter({ subsets: ["latin"] });
-
 export const metadata: Metadata = {
-  title: "KabadiAI - E-Waste Appraisal",
-  description: "Know what your e-waste is, what it's worth, and where it should go.",
+  title: "KabadiAI",
+  description: "For kabadiwalas: know what your e-waste lot is, what it is worth, and where to deliver it safely.",
   manifest: "/manifest.json",
-  icons: {
-    apple: "/icon.png",
-  },
+  icons: { apple: "/icon.png" },
 };
+export const viewport: Viewport = { themeColor: "#047857", width: "device-width", initialScale: 1 };
 
-export const viewport: Viewport = {
-  themeColor: "#0f172a",
-  width: "device-width",
-  initialScale: 1,
-};
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="hi">
+      <body>
         <LanguageProvider>
-          <div className="min-h-screen max-w-md mx-auto relative overflow-hidden bg-[url('/bg-mesh.svg')] bg-cover bg-center">
-            {children}
-          </div>
+          <div className="min-h-screen max-w-md mx-auto">{children}</div>
         </LanguageProvider>
       </body>
     </html>
