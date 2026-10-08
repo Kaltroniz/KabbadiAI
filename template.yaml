@@ -6,10 +6,15 @@ Parameters:
   BedrockModelId:
     Type: String
     Default: us.amazon.nova-2-lite-v1:0
+  MockAnalysis:
+    Type: String
+    Default: "0"
+    AllowedValues: ["0", "1"]
+    Description: Set to "1" to return fixed mock data without calling Bedrock. Remove before final demo.
 
 Globals:
   Function:
-    Runtime: python3.12
+    Runtime: python3.13
     Timeout: 60
     MemorySize: 512
 
@@ -33,6 +38,7 @@ Resources:
       Environment:
         Variables:
           BEDROCK_MODEL_ID: !Ref BedrockModelId
+          MOCK_ANALYSIS: !Ref MockAnalysis
       Policies:
         - Statement:
             - Effect: Allow
