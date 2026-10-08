@@ -5,8 +5,9 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 const ICON: Record<string, string> = {
   motherboard: "🧩", ram_stick: "💾", mobile_pcb: "📱", li_ion_battery: "🔋", alkaline_battery: "🪫", copper_wire: "➰",
-  charger_adapter: "🔌", hard_drive: "💽", aluminium_heatsink: "🔩", screen: "🖥️", cfl_or_tube_light: "💡",
-  router_or_modem: "📡", remote: "📺", other: "📦",
+  charger_adapter: "🔌", hard_drive: "💽", aluminium_heatsink: "🔩", power_supply: "⚡", printer: "🖨️", crt_monitor_or_tv: "📺",
+  lcd_led_monitor_or_tv: "🖥️", cfl_or_tube_light: "💡", router_or_modem: "📡", remote: "🎛️", laptop: "💻", desktop_cpu: "🗄️",
+  mobile_phone: "📱", other: "📦",
 };
 
 export default function ResultDisplay({ result, onRetake }: { result: any; onRetake: () => void }) {
@@ -62,6 +63,7 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
         <div className="text-stone-500 font-semibold">{t("indicativeValue")}</div>
         <div className="text-5xl font-black text-emerald-800 my-2">₹{lo}–{hi}</div>
         <button onClick={() => speak(summary)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-stone-200 text-xl font-bold">🔊 {t("listen")}</button>
+        <p className="text-xs text-stone-500 mt-3">{t("priceNote")}</p>
       </div>
 
       {result.verdict && V[result.verdict] && (
@@ -82,7 +84,7 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
                 <div className="text-lg font-semibold">{name(it.component)} <span className="text-stone-500 font-normal">x{it.count}</span></div>
                 <div className="text-stone-500 text-sm">~{it.est_weight_g} g</div>
               </div>
-              <div className="text-lg font-bold">{it.hazardous ? "⚠" : `₹${Math.round(it.min_inr)}–${Math.round(it.max_inr)}`}</div>
+              <div className="text-lg font-bold">{it.hazardous ? "⚠" : it.priced === false ? t("priceUnknown") : `₹${Math.round(it.min_inr)}–${Math.round(it.max_inr)}`}</div>
             </div>
           ))}
         </div>

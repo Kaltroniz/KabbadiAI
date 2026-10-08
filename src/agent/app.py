@@ -3,7 +3,9 @@ Facts (prices, hazard text, recyclers) come from tables and fixed text, never fr
 The model only reads the photo. Tools take no data arguments, so the agent cannot corrupt numbers.
 AGENT_MODE=1 lets a Strands agent choose the order of steps; default (0) runs the same steps
 deterministically. API Gateway HTTP APIs cut requests at 30 s, so measure agent latency first."""
-import base64, json, math, os, re
+import base64, json, math, os, re, uuid
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import boto3
 
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0")
@@ -11,11 +13,10 @@ MOCK = os.environ.get("MOCK_ANALYSIS", "0") == "1"
 AGENT_MODE = os.environ.get("AGENT_MODE", "0") == "1"
 PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
 RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
+LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
 MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
-COMPONENTS = {"motherboard", "ram_stick", "mobile_pcb", "li_ion_battery", "alkaline_battery", "copper_wire",
-              "charger_adapter", "hard_drive", "aluminium_heatsink", "screen", "cfl_or_tube_light",
-              "router_or_modem", "remote", "other"}
+COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "li_ion_battery", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "remote", "router_or_modem"}
 CONDITIONS = {"intact", "corroded", "swollen", "leaking", "broken", "unknown"}
 HAZARDS = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass"}
 NO_VALUE = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
@@ -38,7 +39,8 @@ GENERAL = {"en": "Never burn circuit boards or use acid to extract metal.",
 PROMPT = f"""You assess photographed discarded electronics in India. Return ONLY one JSON object:
 {{"items":[{{"component":<one of {sorted(COMPONENTS)}>,"condition":<one of {sorted(CONDITIONS)}>,"count":<int>,"est_weight_g":<int, TOTAL weight of all units in this line>}}],
  "hazards":[<subset of {sorted(HAZARDS)}>],"confidence":<0-100>,"notes":"<short>"}}
-List only what is visible. Lower confidence if blurry, dark or hidden. Flag swollen_battery only if a battery visibly bulges."""
+List only what is visible. Lower confidence if blurry, dark or hidden. Flag swollen_battery only if a battery visibly bulges.
+For whole devices (laptop, desktop_cpu, mobile_phone, hard_drive, power_supply, crt_monitor_or_tv, lcd_led_monitor_or_tv) set count to the number of devices."""
 
 MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "count": 1, "est_weight_g": 320},
                        {"component": "copper_wire", "condition": "intact", "count": 3, "est_weight_g": 270},
@@ -53,7 +55,7 @@ def _table(name):
 
 def _price_row(comp):
     t = _table(PRICES_TABLE)
-    return t.get_item(Key={"component": comp}).get("Item") or t.get_item(Key={"component": "other"}).get("Item") or {}
+    return t.get_item(Key={"component": comp}).get("Item") or t.get_item(Key={"component": "other"}).get("Item") or {"basis": "none"}
 
 def _all_recyclers():
     return _table(RECYCLERS_TABLE).scan().get("Items", [])
@@ -93,6 +95,7 @@ def _hazards(scan):  # model flags plus rules, so a swollen battery is never mis
         if c == "li_ion_battery" and k == "swollen": h.add("swollen_battery")
         if k == "leaking" and c in ("li_ion_battery", "alkaline_battery"): h.add("leaking_battery")
         if c == "cfl_or_tube_light": h.add("mercury_lamp")
+        if c == "crt_monitor_or_tv": h.add("crt_or_lead_glass")
     return sorted(h & HAZARDS)
 
 CTX = {}
@@ -111,13 +114,21 @@ def _clarify():
 def _price():
     rows, lo_t, hi_t = [], 0.0, 0.0
     for it in CTX["scan"]["items"]:
-        row, kg = _price_row(it["component"]), it["est_weight_g"] / 1000
-        zero = it["component"] in NO_VALUE
-        lo = 0.0 if zero else round(float(row.get("min_inr_per_kg", 0)) * kg, 2)
-        hi = 0.0 if zero else round(float(row.get("max_inr_per_kg", 0)) * kg, 2)
+        row = _price_row(it["component"])
+        basis = str(row.get("basis", "none"))
+        priced = it["component"] not in NO_VALUE and basis in ("per_kg", "per_piece")
+        if not priced:
+            lo = hi = 0.0
+        elif basis == "per_piece":
+            lo, hi = float(row["min_inr"]) * it["count"], float(row["max_inr"]) * it["count"]
+        else:
+            kg = it["est_weight_g"] / 1000
+            lo, hi = float(row["min_inr"]) * kg, float(row["max_inr"]) * kg
+        lo, hi = round(lo, 2), round(hi, 2)
         lo_t, hi_t = lo_t + lo, hi_t + hi
         rows.append({"component": it["component"], "condition": it["condition"], "count": it["count"],
-                     "est_weight_g": it["est_weight_g"], "min_inr": lo, "max_inr": hi, "hazardous": zero,
+                     "est_weight_g": it["est_weight_g"], "min_inr": lo, "max_inr": hi, "hazardous": it["component"] in NO_VALUE,
+                     "priced": priced, "basis": basis, "confidence": str(row.get("confidence", "")),
                      "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", ""))})
     CTX["line_items"], CTX["totals"] = rows, (round(lo_t, 2), round(hi_t, 2))
     return {"total_min_inr": CTX["totals"][0], "total_max_inr": CTX["totals"][1]}
@@ -151,6 +162,24 @@ def _finish():
         res["verdict"] = "low" if offer < lo else "high" if offer > hi else "fair"
     CTX["result"] = res
     return "Result assembled."
+
+def _save_lot(res):
+    """Store an anonymous lot record (no names or numbers; location rounded to ~1 km). Never breaks the response."""
+    if not LOTS_TABLE or res.get("type") != "result":
+        return None
+    lat, lon = CTX.get("lat"), CTX.get("lon")
+    lot = {"id": uuid.uuid4().hex[:10], "created_at": datetime.now(timezone.utc).isoformat(), "status": "scanned",
+           "mock": bool(MOCK), "items": [{k: i[k] for k in ("component", "count", "est_weight_g", "min_inr", "max_inr")} for i in res["line_items"]],
+           "hazards": [h["hazard_code"] for h in res["hazard_messages"]], "total_min_inr": res["total_min_inr"], "total_max_inr": res["total_max_inr"],
+           "expires_at": int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())}
+    if lat is not None and lon is not None:
+        lot["cell_lat"], lot["cell_lon"] = round(lat, 2), round(lon, 2)
+    try:
+        _table(LOTS_TABLE).put_item(Item=json.loads(json.dumps(lot), parse_float=Decimal))
+        return lot["id"]
+    except Exception as e:
+        print("lot save failed:", repr(e))
+        return None
 
 def _complete():  # fills any step the agent skipped; never re-scans the photo
     if "scan" not in CTX: _analyze()
@@ -223,7 +252,7 @@ def handler(event, context):
             return _json(400, {"error": "bad coordinates"})
         offer = float(b["dealer_offer_inr"]) if b.get("dealer_offer_inr") is not None else None
         if offer is not None and offer < 0: return _json(400, {"error": "bad offer"})
-        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "hi"))[:5]}
+        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "en"))[:5]}
     except Exception:
         return _json(400, {"error": "bad request"})
     try:
@@ -234,6 +263,8 @@ def handler(event, context):
         _complete()
         res = CTX["result"]
         if MOCK: res["mock"] = True
+        lot_id = _save_lot(res)
+        if lot_id: res["lot_id"] = lot_id
         return _json(200, res)
     except Exception as e:
         print("agent error:", repr(e))

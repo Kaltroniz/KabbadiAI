@@ -1,16 +1,518 @@
 [
-  {"component": "motherboard",       "min_inr_per_kg": 200, "max_inr_per_kg": 450, "source": "web listings vary widely, some mixed boards far lower", "checked_date": "2026-10-08"},
-  {"component": "ram_stick",         "min_inr_per_kg": 400, "max_inr_per_kg": 800, "source": "web listing", "checked_date": "2026-10-08"},
-  {"component": "mobile_pcb",        "min_inr_per_kg": 250, "max_inr_per_kg": 550, "source": "web listings", "checked_date": "2026-10-08"},
-  {"component": "copper_wire",       "min_inr_per_kg": 380, "max_inr_per_kg": 600, "source": "mixed to clean insulated range", "checked_date": "2026-10-08"},
-  {"component": "aluminium_heatsink","min_inr_per_kg":  80, "max_inr_per_kg": 130, "source": "web listing", "checked_date": "2026-10-08"},
-  {"component": "charger_adapter",   "min_inr_per_kg":  60, "max_inr_per_kg": 120, "source": "cables and wiring range", "checked_date": "2026-10-08"},
-  {"component": "hard_drive",        "min_inr_per_kg":  40, "max_inr_per_kg":  90, "source": "unverified placeholder", "checked_date": "2026-10-08"},
-  {"component": "li_ion_battery",    "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "hazardous – no value shown, route to recycler", "checked_date": "2026-10-08"},
-  {"component": "alkaline_battery",  "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "no value shown", "checked_date": "2026-10-08"},
-  {"component": "cfl_or_tube_light", "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "contains mercury – no value shown", "checked_date": "2026-10-08"},
-  {"component": "screen",            "min_inr_per_kg":   0, "max_inr_per_kg":  15, "source": "low value", "checked_date": "2026-10-08"},
-  {"component": "router_or_modem",   "min_inr_per_kg":  30, "max_inr_per_kg":  90, "source": "unverified placeholder", "checked_date": "2026-10-08"},
-  {"component": "remote",            "min_inr_per_kg":  10, "max_inr_per_kg":  40, "source": "unverified placeholder", "checked_date": "2026-10-08"},
-  {"component": "other",             "min_inr_per_kg":   0, "max_inr_per_kg":  10, "source": "fallback", "checked_date": "2026-10-08"}
+ {
+  "component": "motherboard",
+  "basis": "per_kg",
+  "min_inr": 150,
+  "max_inr": 400,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "Rs200-350/kg",
+    "date": "2026"
+   },
+   {
+    "name": "todaypricerates",
+    "url": "https://resale.todaypricerates.com/ewaste-scrap-rate",
+    "value": "PCB boards Rs400-800/kg",
+    "date": "2025-26"
+   },
+   {
+    "name": "scraprates.in",
+    "url": "https://scraprates.in/gandhinagar/e-waste-scrap-price",
+    "value": "circuit boards Rs150-400/kg",
+    "date": "2026-08-06"
+   },
+   {
+    "name": "Alibaba buying guide",
+    "url": "https://electronics.alibaba.com/buyingguides/motherboard-cpu-scrap-guide-value,-recovery-selling-tips",
+    "value": "medium grade Rs150-190, high Rs220-250/kg",
+    "date": "mid-2024"
+   },
+   {
+    "name": "Alibaba buying guide",
+    "url": "https://electronics.alibaba.com/buyingguides/scrap-motherboard-for-sale-price,-value-where-to-sell",
+    "value": "Rs60-850/kg, desktop ATX over Rs500",
+    "date": "2026"
+   },
+   {
+    "name": "IndiaMART listings",
+    "url": "https://dir.indiamart.com/impcat/motherboard-scrap.html",
+    "value": "Rs40-650/kg, wide spread",
+    "date": "2026-10"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "Rs120 per board",
+    "date": "2025"
+   }
+  ],
+  "source": "kabadiwalaonline; todaypricerates; scraprates.in; Alibaba buying guide; Alibaba buying guide; IndiaMART listings; Live Chennai"
+ },
+ {
+  "component": "ram_stick",
+  "basis": "per_kg",
+  "min_inr": 400,
+  "max_inr": 800,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "Rs400-800/kg",
+    "date": "2026"
+   },
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "Rs600/kg",
+    "date": "undated"
+   }
+  ],
+  "source": "kabadiwalaonline; old Delhi dealer blog"
+ },
+ {
+  "component": "mobile_pcb",
+  "basis": "per_kg",
+  "min_inr": 250,
+  "max_inr": 450,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "mobile scrap Rs300-600 (unit unclear)",
+    "date": "2026"
+   },
+   {
+    "name": "Alibaba buying guide",
+    "url": "https://electronics.alibaba.com/buyingguides/scrap-motherboard-for-sale-price,-value-where-to-sell",
+    "value": "mobile boards Rs250-350/kg",
+    "date": "2026"
+   },
+   {
+    "name": "TradeIndia",
+    "url": "https://www.tradeindia.com/manufacturers/pcb-scrap.html",
+    "value": "green Android board Rs100-120 per piece",
+    "date": "2026-04"
+   }
+  ],
+  "source": "kabadiwalaonline; Alibaba buying guide; TradeIndia"
+ },
+ {
+  "component": "copper_wire",
+  "basis": "per_kg",
+  "min_inr": 250,
+  "max_inr": 480,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "nationalrecycling.in",
+    "url": "https://www.nationalrecycling.in/blog/copper-scrap-price-india-2026/",
+    "value": "insulated wire Rs340-480/kg (55-75% Cu)",
+    "date": "mid-2026"
+   },
+   {
+    "name": "IndiaMART listing",
+    "url": "https://www.indiamart.com/proddetail/pvc-insulated-copper-wire-scrap-22985524197.html",
+    "value": "PVC insulated wire Rs320/kg (50-55% Cu)",
+    "date": "2026"
+   },
+   {
+    "name": "Prime Scrap Noida/Delhi",
+    "url": "https://www.primescrap.in/rates",
+    "value": "copper wire Rs200/kg",
+    "date": "2026-06-23"
+   }
+  ],
+  "source": "nationalrecycling.in; IndiaMART listing; Prime Scrap Noida/Delhi"
+ },
+ {
+  "component": "aluminium_heatsink",
+  "basis": "per_kg",
+  "min_inr": 120,
+  "max_inr": 250,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/price-list/",
+    "value": "aluminium scrap Rs95-130/kg",
+    "date": "2026-08-16"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "aluminium scrap Rs200/kg",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "BankBazaar",
+    "url": "https://www.bankbazaar.com/commodity-price/aluminium-price.html",
+    "value": "aluminium Rs338/kg spot, Delhi scrap about Rs190",
+    "date": "2026-10-07"
+   }
+  ],
+  "source": "kabadiwalaonline; Prime Scrap; BankBazaar"
+ },
+ {
+  "component": "charger_adapter",
+  "basis": "per_kg",
+  "min_inr": 40,
+  "max_inr": 100,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "cable scrap Rs30/kg",
+    "date": "undated"
+   },
+   {
+    "name": "todaypricerates",
+    "url": "https://resale.todaypricerates.com/ewaste-scrap-rate",
+    "value": "cables and wiring Rs60-120/kg",
+    "date": "2025-26"
+   }
+  ],
+  "source": "old Delhi dealer blog; todaypricerates"
+ },
+ {
+  "component": "hard_drive",
+  "basis": "per_piece",
+  "min_inr": 50,
+  "max_inr": 100,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "Rs50 per piece",
+    "date": "undated"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "Rs70 per piece",
+    "date": "2025"
+   },
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "Rs80-150/kg (about Rs40-75 per drive)",
+    "date": "2026"
+   }
+  ],
+  "source": "old Delhi dealer blog; Live Chennai; kabadiwalaonline"
+ },
+ {
+  "component": "power_supply",
+  "basis": "per_piece",
+  "min_inr": 30,
+  "max_inr": 70,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "SMPS Rs30",
+    "date": "2025"
+   },
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "Rs45 per piece",
+    "date": "undated"
+   },
+   {
+    "name": "IndiaMART Delhi",
+    "url": "https://dir.indiamart.com/delhi/computer-scrap.html",
+    "value": "power supply scrap Rs70 per piece",
+    "date": "2026-10-02"
+   }
+  ],
+  "source": "Live Chennai; old Delhi dealer blog; IndiaMART Delhi"
+ },
+ {
+  "component": "printer",
+  "basis": "per_kg",
+  "min_inr": 30,
+  "max_inr": 60,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "Rs40/kg",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "Scrapia (IndiaMART)",
+    "url": "https://www.indiamart.com/proddetail/led-and-lcd-tv-and-monitor-scrap-2855382183830.html",
+    "value": "Rs40/kg",
+    "date": "2026"
+   },
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "Rs15/kg",
+    "date": "undated"
+   }
+  ],
+  "source": "Prime Scrap; Scrapia (IndiaMART); old Delhi dealer blog"
+ },
+ {
+  "component": "crt_monitor_or_tv",
+  "basis": "per_piece",
+  "min_inr": 100,
+  "max_inr": 300,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "CRT monitor Rs300, CRT TV Rs200",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "Reuze",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "CRT TV Rs100-200",
+    "date": "2026"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "CRT monitor Rs120",
+    "date": "2025"
+   },
+   {
+    "name": "Recycle Baba",
+    "url": "https://recyclebaba.com/scrap-price-list",
+    "value": "CRT monitor Rs100-200",
+    "date": "2025"
+   }
+  ],
+  "source": "Prime Scrap; Reuze; Live Chennai; Recycle Baba"
+ },
+ {
+  "component": "lcd_led_monitor_or_tv",
+  "basis": "per_piece",
+  "min_inr": 50,
+  "max_inr": 250,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "LCD monitors Rs50-100",
+    "date": "2025"
+   },
+   {
+    "name": "Recycle Baba",
+    "url": "https://recyclebaba.com/scrap-price-list",
+    "value": "TV scrap Rs250",
+    "date": "2025"
+   },
+   {
+    "name": "Scrapia (IndiaMART)",
+    "url": "https://www.indiamart.com/proddetail/led-and-lcd-tv-and-monitor-scrap-2855382183830.html",
+    "value": "LED/LCD TV or monitor Rs50 per piece",
+    "date": "2026"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "LCD monitor/TV Rs40/kg",
+    "date": "2026-06-23"
+   }
+  ],
+  "source": "Live Chennai; Recycle Baba; Scrapia (IndiaMART); Prime Scrap"
+ },
+ {
+  "component": "router_or_modem",
+  "basis": "per_kg",
+  "min_inr": 30,
+  "max_inr": 60,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/price-list/",
+    "value": "mixed e-waste Rs30-90/kg",
+    "date": "2026-08-16"
+   },
+   {
+    "name": "scraprates.in Delhi",
+    "url": "https://scraprates.in/delhi/e-waste-scrap-price",
+    "value": "mixed e-waste Rs48.32/kg wholesale baseline",
+    "date": "2026-07-03"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "metal e-waste Rs25-30/kg",
+    "date": "2026-06"
+   }
+  ],
+  "source": "kabadiwalaonline; scraprates.in Delhi; Prime Scrap"
+ },
+ {
+  "component": "remote",
+  "basis": "per_kg",
+  "min_inr": 15,
+  "max_inr": 30,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/price-list/",
+    "value": "hard plastic Rs15-30/kg (proxy)",
+    "date": "2026-08-16"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "plastic e-waste Rs15/kg",
+    "date": "2026-06-23"
+   }
+  ],
+  "source": "kabadiwalaonline; Prime Scrap"
+ },
+ {
+  "component": "laptop",
+  "basis": "per_piece",
+  "min_inr": 150,
+  "max_inr": 600,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/price-list/",
+    "value": "Rs150-450 per piece",
+    "date": "2026-08-16"
+   },
+   {
+    "name": "todaypricerates",
+    "url": "https://resale.todaypricerates.com/ewaste-scrap-rate",
+    "value": "Rs100-400 per unit",
+    "date": "2025-26"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "dead laptop Rs700 per piece",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "IndiaMART listings",
+    "url": "https://dir.indiamart.com/impcat/laptop-scrap.html",
+    "value": "Rs180-500/kg",
+    "date": "2026"
+   }
+  ],
+  "source": "kabadiwalaonline; todaypricerates; Prime Scrap; IndiaMART listings"
+ },
+ {
+  "component": "desktop_cpu",
+  "basis": "per_piece",
+  "min_inr": 120,
+  "max_inr": 600,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "desktop CPU Rs600 per piece",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "Scrapia (IndiaMART)",
+    "url": "https://www.indiamart.com/proddetail/led-and-lcd-tv-and-monitor-scrap-2855382183830.html",
+    "value": "CPU computer scrap Rs120 per piece",
+    "date": "2026"
+   }
+  ],
+  "source": "Prime Scrap; Scrapia (IndiaMART)"
+ },
+ {
+  "component": "mobile_phone",
+  "basis": "per_piece",
+  "min_inr": 50,
+  "max_inr": 350,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "todaypricerates",
+    "url": "https://resale.todaypricerates.com/ewaste-scrap-rate",
+    "value": "Rs50-350 per phone",
+    "date": "2025-26"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "smartphone Rs300, keypad phone Rs40, tablet Rs50",
+    "date": "2026-06-23"
+   }
+  ],
+  "source": "todaypricerates; Prime Scrap"
+ },
+ {
+  "component": "li_ion_battery",
+  "basis": "none",
+  "min_inr": 0,
+  "max_inr": 0,
+  "confidence": "none",
+  "checked_date": "2026-10-08",
+  "sources": [],
+  "source": "hazardous: no value shown, route to an authorized recycler"
+ },
+ {
+  "component": "alkaline_battery",
+  "basis": "none",
+  "min_inr": 0,
+  "max_inr": 0,
+  "confidence": "none",
+  "checked_date": "2026-10-08",
+  "sources": [],
+  "source": "no value shown"
+ },
+ {
+  "component": "cfl_or_tube_light",
+  "basis": "none",
+  "min_inr": 0,
+  "max_inr": 0,
+  "confidence": "none",
+  "checked_date": "2026-10-08",
+  "sources": [],
+  "source": "contains mercury: no value shown"
+ },
+ {
+  "component": "other",
+  "basis": "none",
+  "min_inr": 0,
+  "max_inr": 0,
+  "confidence": "none",
+  "checked_date": "2026-10-08",
+  "sources": [],
+  "source": "no reliable price: shown as unknown"
+ }
 ]

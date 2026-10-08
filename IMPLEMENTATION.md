@@ -209,7 +209,9 @@ Facts (prices, hazard text, recyclers) come from tables and fixed text, never fr
 The model only reads the photo. Tools take no data arguments, so the agent cannot corrupt numbers.
 AGENT_MODE=1 lets a Strands agent choose the order of steps; default (0) runs the same steps
 deterministically. API Gateway HTTP APIs cut requests at 30 s, so measure agent latency first."""
-import base64, json, math, os, re
+import base64, json, math, os, re, uuid
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import boto3
 
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0")
@@ -217,11 +219,10 @@ MOCK = os.environ.get("MOCK_ANALYSIS", "0") == "1"
 AGENT_MODE = os.environ.get("AGENT_MODE", "0") == "1"
 PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
 RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
+LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
 MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
-COMPONENTS = {"motherboard", "ram_stick", "mobile_pcb", "li_ion_battery", "alkaline_battery", "copper_wire",
-              "charger_adapter", "hard_drive", "aluminium_heatsink", "screen", "cfl_or_tube_light",
-              "router_or_modem", "remote", "other"}
+COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "li_ion_battery", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "remote", "router_or_modem"}
 CONDITIONS = {"intact", "corroded", "swollen", "leaking", "broken", "unknown"}
 HAZARDS = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass"}
 NO_VALUE = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
@@ -244,7 +245,8 @@ GENERAL = {"en": "Never burn circuit boards or use acid to extract metal.",
 PROMPT = f"""You assess photographed discarded electronics in India. Return ONLY one JSON object:
 {{"items":[{{"component":<one of {sorted(COMPONENTS)}>,"condition":<one of {sorted(CONDITIONS)}>,"count":<int>,"est_weight_g":<int, TOTAL weight of all units in this line>}}],
  "hazards":[<subset of {sorted(HAZARDS)}>],"confidence":<0-100>,"notes":"<short>"}}
-List only what is visible. Lower confidence if blurry, dark or hidden. Flag swollen_battery only if a battery visibly bulges."""
+List only what is visible. Lower confidence if blurry, dark or hidden. Flag swollen_battery only if a battery visibly bulges.
+For whole devices (laptop, desktop_cpu, mobile_phone, hard_drive, power_supply, crt_monitor_or_tv, lcd_led_monitor_or_tv) set count to the number of devices."""
 
 MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "count": 1, "est_weight_g": 320},
                        {"component": "copper_wire", "condition": "intact", "count": 3, "est_weight_g": 270},
@@ -259,7 +261,7 @@ def _table(name):
 
 def _price_row(comp):
     t = _table(PRICES_TABLE)
-    return t.get_item(Key={"component": comp}).get("Item") or t.get_item(Key={"component": "other"}).get("Item") or {}
+    return t.get_item(Key={"component": comp}).get("Item") or t.get_item(Key={"component": "other"}).get("Item") or {"basis": "none"}
 
 def _all_recyclers():
     return _table(RECYCLERS_TABLE).scan().get("Items", [])
@@ -299,6 +301,7 @@ def _hazards(scan):  # model flags plus rules, so a swollen battery is never mis
         if c == "li_ion_battery" and k == "swollen": h.add("swollen_battery")
         if k == "leaking" and c in ("li_ion_battery", "alkaline_battery"): h.add("leaking_battery")
         if c == "cfl_or_tube_light": h.add("mercury_lamp")
+        if c == "crt_monitor_or_tv": h.add("crt_or_lead_glass")
     return sorted(h & HAZARDS)
 
 CTX = {}
@@ -317,13 +320,21 @@ def _clarify():
 def _price():
     rows, lo_t, hi_t = [], 0.0, 0.0
     for it in CTX["scan"]["items"]:
-        row, kg = _price_row(it["component"]), it["est_weight_g"] / 1000
-        zero = it["component"] in NO_VALUE
-        lo = 0.0 if zero else round(float(row.get("min_inr_per_kg", 0)) * kg, 2)
-        hi = 0.0 if zero else round(float(row.get("max_inr_per_kg", 0)) * kg, 2)
+        row = _price_row(it["component"])
+        basis = str(row.get("basis", "none"))
+        priced = it["component"] not in NO_VALUE and basis in ("per_kg", "per_piece")
+        if not priced:
+            lo = hi = 0.0
+        elif basis == "per_piece":
+            lo, hi = float(row["min_inr"]) * it["count"], float(row["max_inr"]) * it["count"]
+        else:
+            kg = it["est_weight_g"] / 1000
+            lo, hi = float(row["min_inr"]) * kg, float(row["max_inr"]) * kg
+        lo, hi = round(lo, 2), round(hi, 2)
         lo_t, hi_t = lo_t + lo, hi_t + hi
         rows.append({"component": it["component"], "condition": it["condition"], "count": it["count"],
-                     "est_weight_g": it["est_weight_g"], "min_inr": lo, "max_inr": hi, "hazardous": zero,
+                     "est_weight_g": it["est_weight_g"], "min_inr": lo, "max_inr": hi, "hazardous": it["component"] in NO_VALUE,
+                     "priced": priced, "basis": basis, "confidence": str(row.get("confidence", "")),
                      "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", ""))})
     CTX["line_items"], CTX["totals"] = rows, (round(lo_t, 2), round(hi_t, 2))
     return {"total_min_inr": CTX["totals"][0], "total_max_inr": CTX["totals"][1]}
@@ -357,6 +368,24 @@ def _finish():
         res["verdict"] = "low" if offer < lo else "high" if offer > hi else "fair"
     CTX["result"] = res
     return "Result assembled."
+
+def _save_lot(res):
+    """Store an anonymous lot record (no names or numbers; location rounded to ~1 km). Never breaks the response."""
+    if not LOTS_TABLE or res.get("type") != "result":
+        return None
+    lat, lon = CTX.get("lat"), CTX.get("lon")
+    lot = {"id": uuid.uuid4().hex[:10], "created_at": datetime.now(timezone.utc).isoformat(), "status": "scanned",
+           "mock": bool(MOCK), "items": [{k: i[k] for k in ("component", "count", "est_weight_g", "min_inr", "max_inr")} for i in res["line_items"]],
+           "hazards": [h["hazard_code"] for h in res["hazard_messages"]], "total_min_inr": res["total_min_inr"], "total_max_inr": res["total_max_inr"],
+           "expires_at": int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())}
+    if lat is not None and lon is not None:
+        lot["cell_lat"], lot["cell_lon"] = round(lat, 2), round(lon, 2)
+    try:
+        _table(LOTS_TABLE).put_item(Item=json.loads(json.dumps(lot), parse_float=Decimal))
+        return lot["id"]
+    except Exception as e:
+        print("lot save failed:", repr(e))
+        return None
 
 def _complete():  # fills any step the agent skipped; never re-scans the photo
     if "scan" not in CTX: _analyze()
@@ -429,7 +458,7 @@ def handler(event, context):
             return _json(400, {"error": "bad coordinates"})
         offer = float(b["dealer_offer_inr"]) if b.get("dealer_offer_inr") is not None else None
         if offer is not None and offer < 0: return _json(400, {"error": "bad offer"})
-        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "hi"))[:5]}
+        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "en"))[:5]}
     except Exception:
         return _json(400, {"error": "bad request"})
     try:
@@ -440,6 +469,8 @@ def handler(event, context):
         _complete()
         res = CTX["result"]
         if MOCK: res["mock"] = True
+        lot_id = _save_lot(res)
+        if lot_id: res["lot_id"] = lot_id
         return _json(200, res)
     except Exception as e:
         print("agent error:", repr(e))
@@ -719,8 +750,9 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 const ICON: Record<string, string> = {
   motherboard: "🧩", ram_stick: "💾", mobile_pcb: "📱", li_ion_battery: "🔋", alkaline_battery: "🪫", copper_wire: "➰",
-  charger_adapter: "🔌", hard_drive: "💽", aluminium_heatsink: "🔩", screen: "🖥️", cfl_or_tube_light: "💡",
-  router_or_modem: "📡", remote: "📺", other: "📦",
+  charger_adapter: "🔌", hard_drive: "💽", aluminium_heatsink: "🔩", power_supply: "⚡", printer: "🖨️", crt_monitor_or_tv: "📺",
+  lcd_led_monitor_or_tv: "🖥️", cfl_or_tube_light: "💡", router_or_modem: "📡", remote: "🎛️", laptop: "💻", desktop_cpu: "🗄️",
+  mobile_phone: "📱", other: "📦",
 };
 
 export default function ResultDisplay({ result, onRetake }: { result: any; onRetake: () => void }) {
@@ -776,6 +808,7 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
         <div className="text-stone-500 font-semibold">{t("indicativeValue")}</div>
         <div className="text-5xl font-black text-emerald-800 my-2">₹{lo}–{hi}</div>
         <button onClick={() => speak(summary)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-stone-200 text-xl font-bold">🔊 {t("listen")}</button>
+        <p className="text-xs text-stone-500 mt-3">{t("priceNote")}</p>
       </div>
 
       {result.verdict && V[result.verdict] && (
@@ -796,7 +829,7 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
                 <div className="text-lg font-semibold">{name(it.component)} <span className="text-stone-500 font-normal">x{it.count}</span></div>
                 <div className="text-stone-500 text-sm">~{it.est_weight_g} g</div>
               </div>
-              <div className="text-lg font-bold">{it.hazardous ? "⚠" : `₹${Math.round(it.min_inr)}–${Math.round(it.max_inr)}`}</div>
+              <div className="text-lg font-bold">{it.hazardous ? "⚠" : it.priced === false ? t("priceUnknown") : `₹${Math.round(it.min_inr)}–${Math.round(it.max_inr)}`}</div>
             </div>
           ))}
         </div>
@@ -875,7 +908,9 @@ export function useLanguage() {
 {
   "title": "KabadiAI",
   "subtitle": "Take a photo of your lot. See the price, any danger, and where to deliver it.",
-  "step1": "Photo", "step2": "Check", "step3": "Price",
+  "step1": "Photo",
+  "step2": "Check",
+  "step3": "Price",
   "help": "Tap the big green button and take a photo of your lot. Then you will see the price, any danger, and where to deliver. Tap the speaker to listen.",
   "takePhoto": "Take photo of lot",
   "analyzing": "Checking your lot...",
@@ -902,11 +937,28 @@ export function useLanguage() {
   "errorLowConfidence": "The photo is too blurry or dark. Take a closer, clearer photo.",
   "scanFailed": "Check failed. Please try again.",
   "kmAway": "km",
-  "c_motherboard": "Motherboard", "c_ram_stick": "RAM stick", "c_mobile_pcb": "Mobile board",
-  "c_li_ion_battery": "Lithium battery", "c_alkaline_battery": "AA/AAA cells", "c_copper_wire": "Copper wire",
-  "c_charger_adapter": "Charger/adapter", "c_hard_drive": "Hard drive", "c_aluminium_heatsink": "Aluminium heatsink",
-  "c_screen": "Screen", "c_cfl_or_tube_light": "CFL/tube light", "c_router_or_modem": "Router/modem",
-  "c_remote": "Remote", "c_other": "Other"
+  "c_motherboard": "Motherboard",
+  "c_ram_stick": "RAM stick",
+  "c_mobile_pcb": "Mobile board",
+  "c_li_ion_battery": "Lithium battery",
+  "c_alkaline_battery": "AA/AAA cells",
+  "c_copper_wire": "Copper wire",
+  "c_charger_adapter": "Charger/adapter",
+  "c_hard_drive": "Hard drive",
+  "c_aluminium_heatsink": "Aluminium heatsink",
+  "c_cfl_or_tube_light": "CFL/tube light",
+  "c_router_or_modem": "Router/modem",
+  "c_remote": "Remote",
+  "c_other": "Other",
+  "priceUnknown": "price unknown",
+  "priceNote": "Price ranges are estimates from public scrap-dealer websites (2026), not our own survey. Real offers vary.",
+  "c_laptop": "Laptop",
+  "c_mobile_phone": "Mobile phone",
+  "c_power_supply": "Power supply (SMPS)",
+  "c_printer": "Printer",
+  "c_crt_monitor_or_tv": "CRT monitor/TV",
+  "c_lcd_led_monitor_or_tv": "LCD/LED monitor/TV",
+  "c_desktop_cpu": "Desktop CPU box"
 }
 `
 
@@ -915,7 +967,9 @@ export function useLanguage() {
 {
   "title": "कबाड़ी AI",
   "subtitle": "अपने माल की फोटो लें। दाम, खतरा और माल कहाँ पहुँचाना है, सब देखें।",
-  "step1": "फोटो", "step2": "जाँच", "step3": "दाम",
+  "step1": "फोटो",
+  "step2": "जाँच",
+  "step3": "दाम",
   "help": "बड़े हरे बटन को दबाकर अपने माल की फोटो लें। फिर आपको दाम, खतरा और माल कहाँ पहुँचाना है, यह दिखेगा। सुनने के लिए स्पीकर दबाएं।",
   "takePhoto": "माल की फोटो लें",
   "analyzing": "आपका माल जाँचा जा रहा है...",
@@ -928,7 +982,7 @@ export function useLanguage() {
   "itemsFound": "मिला हुआ सामान",
   "hazardsDetected": "खतरा! इन्हें अलग रखें",
   "g_general": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।",
-  "h_swollen_battery": "खतरा: फूली हुई लिथियम बैटरी। इसे जलाएं नहीं, छेदें नहीं, दबाएं नहीं।",
+  "h_swollen_battery": "खतरा: फूली हुई लिथियम बैटरी। इसे जलाएं नहीं, छेदें মজबूत, दबाएं नहीं।",
   "h_leaking_battery": "बैटरी से तरल निकल रहा है। नंगे हाथ से न छुएं। इसे अलग रखें।",
   "h_mercury_lamp": "इसमें पारा (मरकरी) है। ट्यूब या बल्ब न तोड़ें।",
   "h_crt_or_lead_glass": "खतरनाक: इसमें सीसे का कांच है। इसे न तोड़ें।",
@@ -942,11 +996,28 @@ export function useLanguage() {
   "errorLowConfidence": "फोटो बहुत धुंधली या अंधेरी है। पास से साफ़ फोटो लें।",
   "scanFailed": "जाँच नहीं हो पाई। कृपया दोबारा कोशिश करें।",
   "kmAway": "किमी",
-  "c_motherboard": "मदरबोर्ड", "c_ram_stick": "रैम", "c_mobile_pcb": "मोबाइल बोर्ड",
-  "c_li_ion_battery": "लिथियम बैटरी", "c_alkaline_battery": "AA/AAA सेल", "c_copper_wire": "तांबे का तार",
-  "c_charger_adapter": "चार्जर/अडैप्टर", "c_hard_drive": "हार्ड ड्राइव", "c_aluminium_heatsink": "एल्युमिनियम हीटसिंक",
-  "c_screen": "स्क्रीन", "c_cfl_or_tube_light": "CFL/ट्यूब लाइट", "c_router_or_modem": "राउटर/मॉडेम",
-  "c_remote": "रिमोट", "c_other": "अन्य"
+  "c_motherboard": "मदरबोर्ड",
+  "c_ram_stick": "रैम",
+  "c_mobile_pcb": "मोबाइल बोर्ड",
+  "c_li_ion_battery": "लिथियम बैटरी",
+  "c_alkaline_battery": "AA/AAA सेल",
+  "c_copper_wire": "तांबे का तार",
+  "c_charger_adapter": "चार्जर/अडैप्टर",
+  "c_hard_drive": "हार्ड ड्राइव",
+  "c_aluminium_heatsink": "एल्युमिनियम हीटसिंक",
+  "c_cfl_or_tube_light": "CFL/ट्यूब लाइट",
+  "c_router_or_modem": "राउटर/मॉडेम",
+  "c_remote": "रिमोट",
+  "c_other": "अन्य",
+  "priceUnknown": "दाम पता नहीं",
+  "priceNote": "दाम का अंदाज़ा स्क्रैप डीलरों की सार्वजनिक वेबसाइटों (2026) से है, हमारा अपना सर्वे नहीं। असली ऑफर अलग हो सकते हैं।",
+  "c_laptop": "लैपटॉप",
+  "c_mobile_phone": "मोबाइल फोन",
+  "c_power_supply": "पावर सप्लाई (SMPS)",
+  "c_printer": "प्रिंटर",
+  "c_crt_monitor_or_tv": "CRT मॉनिटर/टीवी",
+  "c_lcd_led_monitor_or_tv": "LCD/LED मॉनिटर/टीवी",
+  "c_desktop_cpu": "डेस्कटॉप CPU बॉक्स"
 }
 `
 
@@ -1280,20 +1351,522 @@ def handler(event, context):
 ### data/prices.json
 `json
 [
-  {"component": "motherboard",       "min_inr_per_kg": 200, "max_inr_per_kg": 450, "source": "web listings vary widely, some mixed boards far lower", "checked_date": "2026-10-08"},
-  {"component": "ram_stick",         "min_inr_per_kg": 400, "max_inr_per_kg": 800, "source": "web listing", "checked_date": "2026-10-08"},
-  {"component": "mobile_pcb",        "min_inr_per_kg": 250, "max_inr_per_kg": 550, "source": "web listings", "checked_date": "2026-10-08"},
-  {"component": "copper_wire",       "min_inr_per_kg": 380, "max_inr_per_kg": 600, "source": "mixed to clean insulated range", "checked_date": "2026-10-08"},
-  {"component": "aluminium_heatsink","min_inr_per_kg":  80, "max_inr_per_kg": 130, "source": "web listing", "checked_date": "2026-10-08"},
-  {"component": "charger_adapter",   "min_inr_per_kg":  60, "max_inr_per_kg": 120, "source": "cables and wiring range", "checked_date": "2026-10-08"},
-  {"component": "hard_drive",        "min_inr_per_kg":  40, "max_inr_per_kg":  90, "source": "unverified placeholder", "checked_date": "2026-10-08"},
-  {"component": "li_ion_battery",    "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "hazardous – no value shown, route to recycler", "checked_date": "2026-10-08"},
-  {"component": "alkaline_battery",  "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "no value shown", "checked_date": "2026-10-08"},
-  {"component": "cfl_or_tube_light", "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "contains mercury – no value shown", "checked_date": "2026-10-08"},
-  {"component": "screen",            "min_inr_per_kg":   0, "max_inr_per_kg":  15, "source": "low value", "checked_date": "2026-10-08"},
-  {"component": "router_or_modem",   "min_inr_per_kg":  30, "max_inr_per_kg":  90, "source": "unverified placeholder", "checked_date": "2026-10-08"},
-  {"component": "remote",            "min_inr_per_kg":  10, "max_inr_per_kg":  40, "source": "unverified placeholder", "checked_date": "2026-10-08"},
-  {"component": "other",             "min_inr_per_kg":   0, "max_inr_per_kg":  10, "source": "fallback", "checked_date": "2026-10-08"}
+ {
+  "component": "motherboard",
+  "basis": "per_kg",
+  "min_inr": 150,
+  "max_inr": 400,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "Rs200-350/kg",
+    "date": "2026"
+   },
+   {
+    "name": "todaypricerates",
+    "url": "https://resale.todaypricerates.com/ewaste-scrap-rate",
+    "value": "PCB boards Rs400-800/kg",
+    "date": "2025-26"
+   },
+   {
+    "name": "scraprates.in",
+    "url": "https://scraprates.in/gandhinagar/e-waste-scrap-price",
+    "value": "circuit boards Rs150-400/kg",
+    "date": "2026-08-06"
+   },
+   {
+    "name": "Alibaba buying guide",
+    "url": "https://electronics.alibaba.com/buyingguides/motherboard-cpu-scrap-guide-value,-recovery-selling-tips",
+    "value": "medium grade Rs150-190, high Rs220-250/kg",
+    "date": "mid-2024"
+   },
+   {
+    "name": "Alibaba buying guide",
+    "url": "https://electronics.alibaba.com/buyingguides/scrap-motherboard-for-sale-price,-value-where-to-sell",
+    "value": "Rs60-850/kg, desktop ATX over Rs500",
+    "date": "2026"
+   },
+   {
+    "name": "IndiaMART listings",
+    "url": "https://dir.indiamart.com/impcat/motherboard-scrap.html",
+    "value": "Rs40-650/kg, wide spread",
+    "date": "2026-10"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "Rs120 per board",
+    "date": "2025"
+   }
+  ],
+  "source": "kabadiwalaonline; todaypricerates; scraprates.in; Alibaba buying guide; Alibaba buying guide; IndiaMART listings; Live Chennai"
+ },
+ {
+  "component": "ram_stick",
+  "basis": "per_kg",
+  "min_inr": 400,
+  "max_inr": 800,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "Rs400-800/kg",
+    "date": "2026"
+   },
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "Rs600/kg",
+    "date": "undated"
+   }
+  ],
+  "source": "kabadiwalaonline; old Delhi dealer blog"
+ },
+ {
+  "component": "mobile_pcb",
+  "basis": "per_kg",
+  "min_inr": 250,
+  "max_inr": 450,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "mobile scrap Rs300-600 (unit unclear)",
+    "date": "2026"
+   },
+   {
+    "name": "Alibaba buying guide",
+    "url": "https://electronics.alibaba.com/buyingguides/scrap-motherboard-for-sale-price,-value-where-to-sell",
+    "value": "mobile boards Rs250-350/kg",
+    "date": "2026"
+   },
+   {
+    "name": "TradeIndia",
+    "url": "https://www.tradeindia.com/manufacturers/pcb-scrap.html",
+    "value": "green Android board Rs100-120 per piece",
+    "date": "2026-04"
+   }
+  ],
+  "source": "kabadiwalaonline; Alibaba buying guide; TradeIndia"
+ },
+ {
+  "component": "copper_wire",
+  "basis": "per_kg",
+  "min_inr": 250,
+  "max_inr": 480,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "nationalrecycling.in",
+    "url": "https://www.nationalrecycling.in/blog/copper-scrap-price-india-2026/",
+    "value": "insulated wire Rs340-480/kg (55-75% Cu)",
+    "date": "mid-2026"
+   },
+   {
+    "name": "IndiaMART listing",
+    "url": "https://www.indiamart.com/proddetail/pvc-insulated-copper-wire-scrap-22985524197.html",
+    "value": "PVC insulated wire Rs320/kg (50-55% Cu)",
+    "date": "2026"
+   },
+   {
+    "name": "Prime Scrap Noida/Delhi",
+    "url": "https://www.primescrap.in/rates",
+    "value": "copper wire Rs200/kg",
+    "date": "2026-06-23"
+   }
+  ],
+  "source": "nationalrecycling.in; IndiaMART listing; Prime Scrap Noida/Delhi"
+ },
+ {
+  "component": "aluminium_heatsink",
+  "basis": "per_kg",
+  "min_inr": 120,
+  "max_inr": 250,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/price-list/",
+    "value": "aluminium scrap Rs95-130/kg",
+    "date": "2026-08-16"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "aluminium scrap Rs200/kg",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "BankBazaar",
+    "url": "https://www.bankbazaar.com/commodity-price/aluminium-price.html",
+    "value": "aluminium Rs338/kg spot, Delhi scrap about Rs190",
+    "date": "2026-10-07"
+   }
+  ],
+  "source": "kabadiwalaonline; Prime Scrap; BankBazaar"
+ },
+ {
+  "component": "charger_adapter",
+  "basis": "per_kg",
+  "min_inr": 40,
+  "max_inr": 100,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "cable scrap Rs30/kg",
+    "date": "undated"
+   },
+   {
+    "name": "todaypricerates",
+    "url": "https://resale.todaypricerates.com/ewaste-scrap-rate",
+    "value": "cables and wiring Rs60-120/kg",
+    "date": "2025-26"
+   }
+  ],
+  "source": "old Delhi dealer blog; todaypricerates"
+ },
+ {
+  "component": "hard_drive",
+  "basis": "per_piece",
+  "min_inr": 50,
+  "max_inr": 100,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "Rs50 per piece",
+    "date": "undated"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "Rs70 per piece",
+    "date": "2025"
+   },
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "Rs80-150/kg (about Rs40-75 per drive)",
+    "date": "2026"
+   }
+  ],
+  "source": "old Delhi dealer blog; Live Chennai; kabadiwalaonline"
+ },
+ {
+  "component": "power_supply",
+  "basis": "per_piece",
+  "min_inr": 30,
+  "max_inr": 70,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "SMPS Rs30",
+    "date": "2025"
+   },
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "Rs45 per piece",
+    "date": "undated"
+   },
+   {
+    "name": "IndiaMART Delhi",
+    "url": "https://dir.indiamart.com/delhi/computer-scrap.html",
+    "value": "power supply scrap Rs70 per piece",
+    "date": "2026-10-02"
+   }
+  ],
+  "source": "Live Chennai; old Delhi dealer blog; IndiaMART Delhi"
+ },
+ {
+  "component": "printer",
+  "basis": "per_kg",
+  "min_inr": 30,
+  "max_inr": 60,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "Rs40/kg",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "Scrapia (IndiaMART)",
+    "url": "https://www.indiamart.com/proddetail/led-and-lcd-tv-and-monitor-scrap-2855382183830.html",
+    "value": "Rs40/kg",
+    "date": "2026"
+   },
+   {
+    "name": "old Delhi dealer blog",
+    "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
+    "value": "Rs15/kg",
+    "date": "undated"
+   }
+  ],
+  "source": "Prime Scrap; Scrapia (IndiaMART); old Delhi dealer blog"
+ },
+ {
+  "component": "crt_monitor_or_tv",
+  "basis": "per_piece",
+  "min_inr": 100,
+  "max_inr": 300,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "CRT monitor Rs300, CRT TV Rs200",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "Reuze",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "CRT TV Rs100-200",
+    "date": "2026"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "CRT monitor Rs120",
+    "date": "2025"
+   },
+   {
+    "name": "Recycle Baba",
+    "url": "https://recyclebaba.com/scrap-price-list",
+    "value": "CRT monitor Rs100-200",
+    "date": "2025"
+   }
+  ],
+  "source": "Prime Scrap; Reuze; Live Chennai; Recycle Baba"
+ },
+ {
+  "component": "lcd_led_monitor_or_tv",
+  "basis": "per_piece",
+  "min_inr": 50,
+  "max_inr": 250,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "LCD monitors Rs50-100",
+    "date": "2025"
+   },
+   {
+    "name": "Recycle Baba",
+    "url": "https://recyclebaba.com/scrap-price-list",
+    "value": "TV scrap Rs250",
+    "date": "2025"
+   },
+   {
+    "name": "Scrapia (IndiaMART)",
+    "url": "https://www.indiamart.com/proddetail/led-and-lcd-tv-and-monitor-scrap-2855382183830.html",
+    "value": "LED/LCD TV or monitor Rs50 per piece",
+    "date": "2026"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "LCD monitor/TV Rs40/kg",
+    "date": "2026-06-23"
+   }
+  ],
+  "source": "Live Chennai; Recycle Baba; Scrapia (IndiaMART); Prime Scrap"
+ },
+ {
+  "component": "router_or_modem",
+  "basis": "per_kg",
+  "min_inr": 30,
+  "max_inr": 60,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/price-list/",
+    "value": "mixed e-waste Rs30-90/kg",
+    "date": "2026-08-16"
+   },
+   {
+    "name": "scraprates.in Delhi",
+    "url": "https://scraprates.in/delhi/e-waste-scrap-price",
+    "value": "mixed e-waste Rs48.32/kg wholesale baseline",
+    "date": "2026-07-03"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "metal e-waste Rs25-30/kg",
+    "date": "2026-06"
+   }
+  ],
+  "source": "kabadiwalaonline; scraprates.in Delhi; Prime Scrap"
+ },
+ {
+  "component": "remote",
+  "basis": "per_kg",
+  "min_inr": 15,
+  "max_inr": 30,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/price-list/",
+    "value": "hard plastic Rs15-30/kg (proxy)",
+    "date": "2026-08-16"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "plastic e-waste Rs15/kg",
+    "date": "2026-06-23"
+   }
+  ],
+  "source": "kabadiwalaonline; Prime Scrap"
+ },
+ {
+  "component": "laptop",
+  "basis": "per_piece",
+  "min_inr": 150,
+  "max_inr": 600,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/price-list/",
+    "value": "Rs150-450 per piece",
+    "date": "2026-08-16"
+   },
+   {
+    "name": "todaypricerates",
+    "url": "https://resale.todaypricerates.com/ewaste-scrap-rate",
+    "value": "Rs100-400 per unit",
+    "date": "2025-26"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "dead laptop Rs700 per piece",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "IndiaMART listings",
+    "url": "https://dir.indiamart.com/impcat/laptop-scrap.html",
+    "value": "Rs180-500/kg",
+    "date": "2026"
+   }
+  ],
+  "source": "kabadiwalaonline; todaypricerates; Prime Scrap; IndiaMART listings"
+ },
+ {
+  "component": "desktop_cpu",
+  "basis": "per_piece",
+  "min_inr": 120,
+  "max_inr": 600,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "desktop CPU Rs600 per piece",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "Scrapia (IndiaMART)",
+    "url": "https://www.indiamart.com/proddetail/led-and-lcd-tv-and-monitor-scrap-2855382183830.html",
+    "value": "CPU computer scrap Rs120 per piece",
+    "date": "2026"
+   }
+  ],
+  "source": "Prime Scrap; Scrapia (IndiaMART)"
+ },
+ {
+  "component": "mobile_phone",
+  "basis": "per_piece",
+  "min_inr": 50,
+  "max_inr": 350,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "sources": [
+   {
+    "name": "todaypricerates",
+    "url": "https://resale.todaypricerates.com/ewaste-scrap-rate",
+    "value": "Rs50-350 per phone",
+    "date": "2025-26"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "smartphone Rs300, keypad phone Rs40, tablet Rs50",
+    "date": "2026-06-23"
+   }
+  ],
+  "source": "todaypricerates; Prime Scrap"
+ },
+ {
+  "component": "li_ion_battery",
+  "basis": "none",
+  "min_inr": 0,
+  "max_inr": 0,
+  "confidence": "none",
+  "checked_date": "2026-10-08",
+  "sources": [],
+  "source": "hazardous: no value shown, route to an authorized recycler"
+ },
+ {
+  "component": "alkaline_battery",
+  "basis": "none",
+  "min_inr": 0,
+  "max_inr": 0,
+  "confidence": "none",
+  "checked_date": "2026-10-08",
+  "sources": [],
+  "source": "no value shown"
+ },
+ {
+  "component": "cfl_or_tube_light",
+  "basis": "none",
+  "min_inr": 0,
+  "max_inr": 0,
+  "confidence": "none",
+  "checked_date": "2026-10-08",
+  "sources": [],
+  "source": "contains mercury: no value shown"
+ },
+ {
+  "component": "other",
+  "basis": "none",
+  "min_inr": 0,
+  "max_inr": 0,
+  "confidence": "none",
+  "checked_date": "2026-10-08",
+  "sources": [],
+  "source": "no reliable price: shown as unknown"
+ }
 ]
 `
 
