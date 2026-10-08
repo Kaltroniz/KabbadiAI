@@ -87,6 +87,50 @@ Resources:
             Path: /scan
             Method: POST
 
+  PriceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/price/
+      Handler: app.handler
+      Environment:
+        Variables:
+          PRICES_TABLE: !Ref PricesTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: !GetAtt PricesTable.Arn
+      Events:
+        Price:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /price
+            Method: POST
+
+  RecyclersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/recyclers/
+      Handler: app.handler
+      Environment:
+        Variables:
+          RECYCLERS_TABLE: !Ref RecyclersTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource: !GetAtt RecyclersTable.Arn
+      Events:
+        Recyclers:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /recyclers
+            Method: GET
+
 Outputs:
   ApiUrl:
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com
