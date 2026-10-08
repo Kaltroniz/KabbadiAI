@@ -131,6 +131,38 @@ Resources:
             Path: /recyclers
             Method: GET
 
+  AgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/agent/
+      Handler: app.handler
+      Timeout: 180
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          MOCK_ANALYSIS: !Ref MockAnalysis
+          PRICES_TABLE: !Ref PricesTable
+          RECYCLERS_TABLE: !Ref RecyclersTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt PricesTable.Arn
+                - !GetAtt RecyclersTable.Arn
+      Events:
+        Agent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /agent
+            Method: POST
+
 Outputs:
   ApiUrl:
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com
