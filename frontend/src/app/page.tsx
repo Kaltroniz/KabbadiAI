@@ -8,7 +8,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 export default function Home() {
   const { lang, setLang, t } = useLanguage();
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
   
   // Geolocation state
   const [coords, setCoords] = useState<{lat: number, lon: number} | null>(null);
@@ -28,7 +28,7 @@ export default function Home() {
     setLoading(true);
     setResult(null);
 
-    const payload: any = {
+    const payload: Record<string, unknown> = {
       image_b64: base64,
       media_type: mimeType,
       language: lang,

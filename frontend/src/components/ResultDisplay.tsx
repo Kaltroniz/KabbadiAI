@@ -4,7 +4,7 @@ import React, { useRef } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ResultDisplayProps {
-  result: any;
+  result: Record<string, any>;
   onRetake: () => void;
 }
 
@@ -34,8 +34,8 @@ export default function ResultDisplay({ result, onRetake }: ResultDisplayProps) 
       return;
     }
     try {
-      let text = `KabadiAI Appraisal:\nValue: ₹${result.total_min_inr} - ₹${result.total_max_inr}\nItems: ${result.line_items.map((i:any)=>i.component).join(', ')}\n`;
-      if (result.hazard_messages?.length > 0) text += `Hazards Present!\n`;
+      let text = `KabadiAI Appraisal:\nValue: ₹${result.total_min_inr} - ₹${result.total_max_inr}\nItems: ${(result.line_items as any[]).map(i=>i.component).join(', ')}\n`;
+      if ((result.hazard_messages as any[])?.length > 0) text += `Hazards Present!\n`;
       text += `\n${t("disclaimer")}`;
 
       await navigator.share({
@@ -57,7 +57,7 @@ export default function ResultDisplay({ result, onRetake }: ResultDisplayProps) 
             {t("hazardsDetected")}
           </h3>
           <ul className="list-disc list-inside text-red-200 text-sm space-y-1">
-            {result.hazard_messages.map((hm: any, idx: number) => (
+            {(result.hazard_messages as any[]).map((hm: any, idx: number) => (
               <li key={idx}>{hm.message}</li>
             ))}
           </ul>
@@ -84,7 +84,7 @@ export default function ResultDisplay({ result, onRetake }: ResultDisplayProps) 
         <div className="border-t border-slate-700/50 pt-4 mt-2">
           <h3 className="text-slate-300 font-semibold mb-3 text-sm uppercase tracking-wide">{t("itemsFound")}</h3>
           <div className="space-y-3">
-            {result.line_items?.map((item: any, i: number) => (
+            {(result.line_items as any[])?.map((item: any, i: number) => (
               <div key={i} className="flex justify-between items-center text-sm">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-slate-600"></span>
@@ -119,7 +119,7 @@ export default function ResultDisplay({ result, onRetake }: ResultDisplayProps) 
             {t("nearestRecyclers")}
           </h3>
           <div className="space-y-3">
-            {result.recyclers.map((r: any) => (
+            {(result.recyclers as any[]).map((r: any) => (
               <a key={r.id} href={r.directions_url} target="_blank" rel="noopener noreferrer" className="block glass-card !p-4 hover:border-blue-500/30 group">
                 <div className="flex justify-between items-start">
                   <div>
