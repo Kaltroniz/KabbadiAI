@@ -1,0 +1,16 @@
+{
+  "name": "KabadiAI - E-Waste Appraisal",
+  "short_name": "KabadiAI",
+  "description": "Scan your old electronics to know their value, hazards, and find nearby recyclers.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
