@@ -1,552 +1,240 @@
-"""KabadiAI Strands agent — POST /agent
-
-This is the agentic entry point.  The agent receives a base64 image (and
-optionally a user weight correction or dealer offer) and coordinates five
-tools to produce a structured triage result.
-
-Confidence gate: if the scan confidence is below 70, the agent returns a
-clarify response immediately, asking for a better photo.  It does NOT guess.
-
-All hazard text comes from a fixed reviewed table (HAZARD_MESSAGES).
-Facts (prices, disposal protocols) come from DynamoDB.  The model is never
-asked to produce price estimates, legal claims, or safety text.
-
-Request body:
-    {
-        "image_b64": "<base64>",
-        "media_type": "image/jpeg" | "image/png" | "image/webp",
-        "lat": <optional float>,
-        "lon": <optional float>,
-        "dealer_offer_inr": <optional float>,
-        "language": "en" | "hi" | ...  (default "en")
-    }
-
-Response 200:
-    {
-        "type": "result" | "clarify",
-        "scan": { ... },           # only when type=result
-        "line_items": [ ... ],     # only when type=result
-        "total_min_inr": <float>,  # only when type=result
-        "total_max_inr": <float>,  # only when type=result
-        "hazards": [ ... ],        # only when type=result
-        "recyclers": [ ... ],      # only when type=result and lat/lon provided
-        "verdict": "low"|"fair"|"high",  # only when dealer_offer_inr supplied
-        "clarify_message": "...",  # only when type=clarify
-        "disclaimer": "..."
-    }
-
-Errors: 400 (bad request), 502 (analysis/agent error).
-"""
-import base64, json, os, sys
+"""KabadiAI POST /agent.
+Facts (prices, hazard text, recyclers) come from tables and fixed text, never from the model.
+The model only reads the photo. Tools take no data arguments, so the agent cannot corrupt numbers.
+AGENT_MODE=1 lets a Strands agent choose the order of steps; default (0) runs the same steps
+deterministically. API Gateway HTTP APIs cut requests at 30 s, so measure agent latency first."""
+import base64, json, math, os, re
 import boto3
 
-# ── Environment ───────────────────────────────────────────────────────────────
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0")
-MOCK_ANALYSIS    = os.environ.get("MOCK_ANALYSIS", "0") == "1"
-PRICES_TABLE     = os.environ.get("PRICES_TABLE", "")
-RECYCLERS_TABLE  = os.environ.get("RECYCLERS_TABLE", "")
-
-CONFIDENCE_THRESHOLD = 70
-MAX_IMAGE_BYTES      = 4_000_000
-
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0")
+MOCK = os.environ.get("MOCK_ANALYSIS", "0") == "1"
+AGENT_MODE = os.environ.get("AGENT_MODE", "0") == "1"
+PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
+RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
+MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
-
-COMPONENTS = {
-    "motherboard", "ram_stick", "mobile_pcb", "li_ion_battery", "alkaline_battery",
-    "copper_wire", "charger_adapter", "hard_drive", "aluminium_heatsink",
-    "screen", "cfl_or_tube_light", "router_or_modem", "remote", "other",
-}
+COMPONENTS = {"motherboard", "ram_stick", "mobile_pcb", "li_ion_battery", "alkaline_battery", "copper_wire",
+              "charger_adapter", "hard_drive", "aluminium_heatsink", "screen", "cfl_or_tube_light",
+              "router_or_modem", "remote", "other"}
 CONDITIONS = {"intact", "corroded", "swollen", "leaking", "broken", "unknown"}
-HAZARDS_ENUM = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass"}
-HAZARDOUS_COMPONENTS = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
+HAZARDS = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass"}
+NO_VALUE = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
+DISCLAIMER = "Indicative only, not an official valuation. Recycler data covers Delhi-NCR only (DPCC/CPCB list, 2023)."
 
-DISCLAIMER = (
-    "Indicative only. Prices vary by condition, market, and date. "
-    "Data covers Delhi-NCR authorized recyclers only (DPCC/CPCB 2023). "
-    "Verify before acting on any value or recycler listing."
-)
-
-# ── Fixed, reviewed hazard messages (never model-generated) ──────────────────
-# KEY RULE: this text must be reviewed by a native speaker before the demo.
-# Safety text must NOT go through machine translation.
+# Fixed safety text. Hindi is a DRAFT: a native speaker must review before the demo.
 HAZARD_MESSAGES = {
-    "swollen_battery": {
-        "en": "DANGER: swollen lithium battery. Do not burn, puncture or crush.",
-        "hi": "Khatra: Lithium battery phool gayi hai. Ise jalaayein, chhedein ya dabaayen nahi.",
-    },
-    "leaking_battery": {
-        "en": "Leaking battery. Do not touch with bare hands. Keep it separate.",
-        "hi": "Battery se liquid aa raha hai. Khali haathon se mat chhoein. Alag rakhein.",
-    },
-    "mercury_lamp": {
-        "en": "Contains mercury. Do not break the tube or bulb.",
-        "hi": "Isme mercury hai. Tube ya bulb mat todein.",
-    },
-    "crt_or_lead_glass": {
-        "en": "Hazardous: lead glass. Do not break open.",
-        "hi": "Khatarnaak: lead glass. Ise mat todein.",
-    },
+    "swollen_battery": {"en": "DANGER: swollen lithium battery. Do not burn, puncture or crush.",
+                        "hi": "खतरा: फूली हुई लिथियम बैटरी। इसे जलाएं नहीं, छेदें नहीं, दबाएं नहीं।"},
+    "leaking_battery": {"en": "Leaking battery. Do not touch with bare hands. Keep it separate.",
+                        "hi": "बैटरी से तरल निकल रहा है। नंगे हाथ से न छुएं। इसे अलग रखें।"},
+    "mercury_lamp": {"en": "Contains mercury. Do not break the tube or bulb.",
+                     "hi": "इसमें पारा (मरकरी) है। ट्यूब या बल्ब न तोड़ें।"},
+    "crt_or_lead_glass": {"en": "Hazardous: lead glass. Do not break open.",
+                          "hi": "खतरनाक: इसमें सीसे का कांच है। इसे न तोड़ें।"},
 }
-GENERAL_WARNING = {
-    "en": "Never burn circuit boards or use acid to extract metal.",
-    "hi": "Circuit boards kabhi mat jalaayein aur dhaatu nikaalane ke liye acid ka upyog mat karein.",
-}
+GENERAL = {"en": "Never burn circuit boards or use acid to extract metal.",
+           "hi": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।"}
 
-# ── DynamoDB helpers ──────────────────────────────────────────────────────────
-_ddb_resource = None
+PROMPT = f"""You assess photographed discarded electronics in India. Return ONLY one JSON object:
+{{"items":[{{"component":<one of {sorted(COMPONENTS)}>,"condition":<one of {sorted(CONDITIONS)}>,"count":<int>,"est_weight_g":<int, TOTAL weight of all units in this line>}}],
+ "hazards":[<subset of {sorted(HAZARDS)}>],"confidence":<0-100>,"notes":"<short>"}}
+List only what is visible. Lower confidence if blurry, dark or hidden. Flag swollen_battery only if a battery visibly bulges."""
 
-def _ddb():
-    global _ddb_resource
-    if _ddb_resource is None:
-        _ddb_resource = boto3.resource("dynamodb")
-    return _ddb_resource
+MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "count": 1, "est_weight_g": 320},
+                       {"component": "copper_wire", "condition": "intact", "count": 3, "est_weight_g": 270},
+                       {"component": "li_ion_battery", "condition": "swollen", "count": 1, "est_weight_g": 150}],
+             "hazards": [], "confidence": 85, "notes": "MOCK DATA, Bedrock not called."}
 
+_ddb = None
+def _table(name):
+    global _ddb
+    _ddb = _ddb or boto3.resource("dynamodb")
+    return _ddb.Table(name)
 
-def _get_price_row(component: str) -> dict:
-    table = _ddb().Table(PRICES_TABLE)
-    item = table.get_item(Key={"component": component}).get("Item")
-    if not item:
-        item = table.get_item(Key={"component": "other"}).get("Item", {
-            "component": "other", "min_inr_per_kg": 0, "max_inr_per_kg": 10,
-            "source": "fallback", "checked_date": "unknown",
-        })
-    return item
+def _price_row(comp):
+    t = _table(PRICES_TABLE)
+    return t.get_item(Key={"component": comp}).get("Item") or t.get_item(Key={"component": "other"}).get("Item") or {}
 
+def _all_recyclers():
+    return _table(RECYCLERS_TABLE).scan().get("Items", [])
 
-def _scan_all_recyclers() -> list:
-    table = _ddb().Table(RECYCLERS_TABLE)
-    return table.scan().get("Items", [])
+def _km(a, b, c, d):
+    p = math.pi / 180
+    x = math.sin((c - a) * p / 2) ** 2 + math.cos(a * p) * math.cos(c * p) * math.sin((d - b) * p / 2) ** 2
+    return 12742 * math.asin(math.sqrt(x))
 
-
-# ── Bedrock scan (mirrors src/scan/app.py but inline for the agent) ───────────
-import re
-
-SCAN_PROMPT = f"""You assess photographed discarded electronics for a household in India.
-Return ONLY one JSON object, no prose, in this shape:
-{{"items":[{{"component":<one of {sorted(COMPONENTS)}>,\"condition\":<one of {sorted(CONDITIONS)}>,\"count\":<int>,\"est_weight_g\":<int>}}],
- "hazards":[<subset of {sorted(HAZARDS_ENUM)}>],
- "confidence":<0-100>,
- "notes":"<short, plain English>"}}
-Rules: list only what you can actually see. If the photo is blurry, dark or items are hidden, lower the confidence.
-Flag swollen_battery only if a battery visibly bulges. Never guess hidden parts."""
-
-
-def _extract_json(text: str) -> dict:
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        raise ValueError("no json in model output")
-    return json.loads(m.group(0))
-
-
-def _clean_scan(raw: dict) -> dict:
+def _clean(raw):
     items = []
     for it in raw.get("items", [])[:20]:
-        comp = it.get("component") if it.get("component") in COMPONENTS else "other"
-        cond = it.get("condition") if it.get("condition") in CONDITIONS else "unknown"
-        items.append({"component": comp, "condition": cond,
-                       "count": max(1, int(it.get("count", 1) or 1)),
-                       "est_weight_g": max(0, int(it.get("est_weight_g", 0) or 0))})
-    hazards = [h for h in raw.get("hazards", []) if h in HAZARDS_ENUM]
-    conf = max(0, min(100, int(raw.get("confidence", 0) or 0)))
-    return {"items": items, "hazards": hazards, "confidence": conf,
-            "notes": str(raw.get("notes", ""))[:300]}
+        items.append({"component": it.get("component") if it.get("component") in COMPONENTS else "other",
+                      "condition": it.get("condition") if it.get("condition") in CONDITIONS else "unknown",
+                      "count": max(1, int(it.get("count", 1) or 1)),
+                      "est_weight_g": max(0, int(it.get("est_weight_g", 0) or 0))})
+    return {"items": items, "hazards": [h for h in raw.get("hazards", []) if h in HAZARDS],
+            "confidence": max(0, min(100, int(raw.get("confidence", 0) or 0))), "notes": str(raw.get("notes", ""))[:300]}
 
-
-def _bedrock_scan(image_bytes: bytes, fmt: str) -> dict:
-    bedrock = boto3.client("bedrock-runtime")
+def _bedrock_scan(img, fmt):
+    client = boto3.client("bedrock-runtime")
     for _ in range(2):
         try:
-            r = bedrock.converse(
-                modelId=BEDROCK_MODEL_ID,
-                messages=[{"role": "user", "content": [
-                    {"image": {"format": fmt, "source": {"bytes": image_bytes}}},
-                    {"text": SCAN_PROMPT},
-                ]}],
-                inferenceConfig={"maxTokens": 1000},
-            )
-            text = r["output"]["message"]["content"][0]["text"]
-            return _clean_scan(_extract_json(text))
-        except (ValueError, KeyError, TypeError):
+            r = client.converse(modelId=MODEL_ID, messages=[{"role": "user", "content": [
+                {"image": {"format": fmt, "source": {"bytes": img}}}, {"text": PROMPT}]}],
+                inferenceConfig={"maxTokens": 1000})
+            m = re.search(r"\{.*\}", r["output"]["message"]["content"][0]["text"], re.S)
+            return _clean(json.loads(m.group(0)))
+        except (AttributeError, ValueError, KeyError, TypeError):
             continue
-        except Exception as e:
-            print("bedrock error:", repr(e))
-            raise
-    raise RuntimeError("model returned unparseable output after retries")
+    raise RuntimeError("model returned invalid output")
 
-
-# ── Haversine distance ────────────────────────────────────────────────────────
-import math
-
-def _haversine_km(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return R * 2 * math.asin(math.sqrt(a))
-
-
-# ── Strands tools ─────────────────────────────────────────────────────────────
-# Import is conditional so the Lambda can still boot (and fail gracefully)
-# if strands-agents is not yet installed.
-try:
-    from strands import Agent, tool as strands_tool
-    STRANDS_AVAILABLE = True
-except ImportError:
-    STRANDS_AVAILABLE = False
-    # Stub decorator so the module still imports cleanly in tests
-    def strands_tool(fn):
-        return fn
-
-
-# Shared state per-invocation — populated by the handler before calling the agent
-_invocation_ctx: dict = {}
-
-
-@strands_tool
-def analyze_image() -> dict:
-    """Analyse the photographed e-waste using Amazon Bedrock vision.
-
-    Identifies components, their condition, approximate weight and any hazards
-    visible in the image.  If confidence is below 70 the result includes
-    a low_confidence flag and the agent MUST call request_clarification next
-    instead of proceeding to price or recycler lookup.
-
-    Returns a scan result dict with keys: items, hazards, confidence, notes,
-    and optionally low_confidence (bool).
-    """
-    ctx = _invocation_ctx
-    if ctx.get("mock"):
-        scan = {
-            "items": [
-                {"component": "motherboard",    "condition": "corroded", "count": 1, "est_weight_g": 320},
-                {"component": "copper_wire",    "condition": "intact",   "count": 3, "est_weight_g":  90},
-                {"component": "li_ion_battery", "condition": "swollen",  "count": 1, "est_weight_g": 150},
-            ],
-            "hazards": ["swollen_battery"],
-            "confidence": 85,
-            "notes": "MOCK DATA – Bedrock not called.",
-        }
-    else:
-        scan = _bedrock_scan(ctx["image_bytes"], ctx["fmt"])
-
-    if scan["confidence"] < CONFIDENCE_THRESHOLD:
-        scan["low_confidence"] = True
-    ctx["scan"] = scan
-    return scan
-
-
-@strands_tool
-def request_clarification() -> dict:
-    """Ask the user for a better photo because confidence is too low to proceed.
-
-    Call this ONLY when analyze_image returned low_confidence=True.
-    Never guess components or prices when confidence is below the threshold.
-
-    Returns a clarify response dict.
-    """
-    return {
-        "type": "clarify",
-        "clarify_message": (
-            "The photo is too blurry or dark to identify the items reliably. "
-            "Please take a closer, well-lit photo and try again."
-        ),
-    }
-
-
-@strands_tool
-def fetch_indicative_price(component: str, count: int, est_weight_g: int) -> dict:
-    """Look up the indicative scrap value for one component from the price table.
-
-    Args:
-        component: One of the known component enum values.
-        count: Number of units of this component.
-        est_weight_g: Estimated weight in grams.
-
-    Returns a dict with min_inr, max_inr, hazardous flag, source note and
-    checked_date.  Hazardous items return min_inr=0 and max_inr=0.
-    """
-    if component not in COMPONENTS:
-        component = "other"
-    row = _get_price_row(component)
-    min_pkg = float(row.get("min_inr_per_kg", 0))
-    max_pkg = float(row.get("max_inr_per_kg", 0))
-    weight_kg = max(0, int(est_weight_g)) / 1000.0
-    item_min = round(min_pkg * weight_kg * count, 2)
-    item_max = round(max_pkg * weight_kg * count, 2)
-    return {
-        "component":    component,
-        "count":        count,
-        "est_weight_g": est_weight_g,
-        "min_inr":      item_min,
-        "max_inr":      item_max,
-        "hazardous":    component in HAZARDOUS_COMPONENTS,
-        "source":       str(row.get("source", "")),
-        "checked_date": str(row.get("checked_date", "")),
-    }
-
-
-@strands_tool
-def fetch_disposal_protocol(hazard_code: str, language: str = "en") -> dict:
-    """Return the fixed, reviewed safety message for a hazard code.
-
-    IMPORTANT: This returns text from a fixed reviewed table.  Never
-    paraphrase or translate this text through the model.  Native speakers
-    must review all translations before the demo.
-
-    Args:
-        hazard_code: One of swollen_battery, leaking_battery, mercury_lamp,
-                     crt_or_lead_glass.
-        language: BCP-47 language code, default "en".  Falls back to "en"
-                  if the requested language is not in the table.
-
-    Returns a dict with hazard_code, message (fixed text), and general_warning.
-    """
-    if hazard_code not in HAZARD_MESSAGES:
-        return {"hazard_code": hazard_code, "message": None, "general_warning": None}
-    msgs = HAZARD_MESSAGES[hazard_code]
-    lang = language if language in msgs else "en"
-    general = GENERAL_WARNING.get(lang, GENERAL_WARNING["en"])
-    return {
-        "hazard_code":     hazard_code,
-        "message":         msgs[lang],
-        "general_warning": general,
-    }
-
-
-@strands_tool
-def find_recyclers(lat: float, lon: float) -> list:
-    """Find up to 5 nearest authorized e-waste recyclers sorted by distance.
-
-    Args:
-        lat: User latitude in decimal degrees.
-        lon: User longitude in decimal degrees.
-
-    Returns a list of recycler dicts with id, name, address, city,
-    distance_km and directions_url.  Coverage is Delhi-NCR only.
-    """
-    all_r = _scan_all_recyclers()
-    enriched = []
-    for r in all_r:
-        dist = _haversine_km(lat, lon, float(r["lat"]), float(r["lon"]))
-        enriched.append({
-            "id":             r["id"],
-            "name":           r["name"],
-            "address":        r["address"],
-            "city":           r["city"],
-            "distance_km":    round(dist, 2),
-            "directions_url": f"https://maps.google.com/maps?daddr={r['lat']},{r['lon']}&saddr={lat},{lon}",
-        })
-    enriched.sort(key=lambda x: x["distance_km"])
-    return enriched[:5]
-
-
-@strands_tool
-def build_share_summary(
-    scan: dict,
-    line_items: list,
-    total_min_inr: float,
-    total_max_inr: float,
-    hazard_messages: list,
-) -> dict:
-    """Assemble the final structured result that the frontend will render.
-
-    Args:
-        scan: The clean scan dict from analyze_image.
-        line_items: Priced line items from fetch_indicative_price calls.
-        total_min_inr: Sum of min values across all items.
-        total_max_inr: Sum of max values across all items.
-        hazard_messages: List of dicts from fetch_disposal_protocol calls.
-
-    Returns the final result dict to be returned to the frontend.
-    """
-    return {
-        "type":          "result",
-        "scan":          scan,
-        "line_items":    line_items,
-        "total_min_inr": round(total_min_inr, 2),
-        "total_max_inr": round(total_max_inr, 2),
-        "hazard_messages": hazard_messages,
-        "disclaimer":    DISCLAIMER,
-    }
-
-
-# ── Agent system prompt ───────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are KabadiAI, an assistant that helps Indian households
-understand the value and hazards of their discarded electronics (e-waste).
-
-Follow this exact sequence every time:
-1. Call analyze_image to identify items and hazards.
-2. If analyze_image returns low_confidence=true, call request_clarification
-   immediately and stop. Do not guess values or components.
-3. For each item returned:
-   a. If the component is valuable (min_inr_per_kg > 0), call fetch_indicative_price.
-   b. If the component is hazardous (li_ion_battery, alkaline_battery,
-      cfl_or_tube_light), call fetch_disposal_protocol for each hazard code.
-4. For each hazard in the scan result, call fetch_disposal_protocol.
-5. If lat/lon are available, call find_recyclers.
-6. Call build_share_summary with the collected data and return its result.
-
-Rules:
-- Never invent prices, weights, or component names.
-- Never produce safety text yourself — always use fetch_disposal_protocol.
-- Never claim official valuations, government endorsement, or EPR subsidies.
-- Always label values as indicative.
-- Data covers Delhi-NCR recyclers only. Say so when recyclers are returned."""
-
-
-# ── Fallback: non-agent path (used when strands not available) ────────────────
-def _run_direct(ctx: dict) -> dict:
-    """Direct (non-agent) execution path used as fallback or in mock mode.
-
-    Calls each tool function directly in the correct sequence without a
-    Strands agent.  Produces the same output schema.
-    """
-    scan = analyze_image()
-
-    if scan.get("low_confidence"):
-        return request_clarification()
-
-    line_items = []
-    total_min, total_max = 0.0, 0.0
-    hazard_msgs = []
-    language = ctx.get("language", "en")
-
+def _hazards(scan):  # model flags plus rules, so a swollen battery is never missed
+    h = set(scan["hazards"])
     for it in scan["items"]:
-        priced = fetch_indicative_price(it["component"], it["count"], it["est_weight_g"])
-        line_items.append(priced)
-        total_min += priced["min_inr"]
-        total_max += priced["max_inr"]
+        c, k = it["component"], it["condition"]
+        if c == "li_ion_battery" and k == "swollen": h.add("swollen_battery")
+        if k == "leaking" and c in ("li_ion_battery", "alkaline_battery"): h.add("leaking_battery")
+        if c == "cfl_or_tube_light": h.add("mercury_lamp")
+    return sorted(h & HAZARDS)
 
-    for hazard_code in scan["hazards"]:
-        msg = fetch_disposal_protocol(hazard_code, language)
-        hazard_msgs.append(msg)
+CTX = {}
 
-    result = build_share_summary(scan, line_items, total_min, total_max, hazard_msgs)
+def _analyze():
+    scan = json.loads(json.dumps(MOCK_SCAN)) if MOCK else _bedrock_scan(CTX["image"], CTX["fmt"])
+    scan["low_confidence"] = scan["confidence"] < MIN_CONF
+    CTX["scan"] = scan
+    return {"confidence": scan["confidence"], "low_confidence": scan["low_confidence"], "items": len(scan["items"])}
 
-    if ctx.get("lat") and ctx.get("lon"):
-        result["recyclers"] = find_recyclers(ctx["lat"], ctx["lon"])
+def _clarify():
+    CTX["result"] = {"type": "clarify", "scan": {"confidence": CTX["scan"]["confidence"]},
+                     "clarify_message": "The photo is too blurry or dark. Please take a closer, well-lit photo."}
+    return "Asked the user for a better photo. Stop."
 
-    dealer = ctx.get("dealer_offer_inr")
-    if dealer is not None:
-        if dealer < total_min:
-            verdict = "low"
-        elif dealer > total_max:
-            verdict = "high"
-        else:
-            verdict = "fair"
-        result["verdict"] = verdict
+def _price():
+    rows, lo_t, hi_t = [], 0.0, 0.0
+    for it in CTX["scan"]["items"]:
+        row, kg = _price_row(it["component"]), it["est_weight_g"] / 1000
+        zero = it["component"] in NO_VALUE
+        lo = 0.0 if zero else round(float(row.get("min_inr_per_kg", 0)) * kg, 2)
+        hi = 0.0 if zero else round(float(row.get("max_inr_per_kg", 0)) * kg, 2)
+        lo_t, hi_t = lo_t + lo, hi_t + hi
+        rows.append({"component": it["component"], "condition": it["condition"], "count": it["count"],
+                     "est_weight_g": it["est_weight_g"], "min_inr": lo, "max_inr": hi, "hazardous": zero,
+                     "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", ""))})
+    CTX["line_items"], CTX["totals"] = rows, (round(lo_t, 2), round(hi_t, 2))
+    return {"total_min_inr": CTX["totals"][0], "total_max_inr": CTX["totals"][1]}
 
-    return result
+def _safety():
+    lang = CTX["lang"]
+    CTX["hazards"] = [{"hazard_code": c, "message": HAZARD_MESSAGES[c].get(lang, HAZARD_MESSAGES[c]["en"])}
+                      for c in _hazards(CTX["scan"])]
+    return {"hazards_found": len(CTX["hazards"])}
 
+def _recyclers():
+    lat, lon = CTX.get("lat"), CTX.get("lon")
+    out = []
+    if lat is not None and lon is not None:
+        for r in _all_recyclers():
+            d = _km(lat, lon, float(r["lat"]), float(r["lon"]))
+            out.append({"id": r["id"], "name": r["name"], "address": r["address"], "city": r["city"],
+                        "distance_km": round(d, 2),
+                        "directions_url": f"https://maps.google.com/maps?daddr={r['lat']},{r['lon']}&saddr={lat},{lon}"})
+        out.sort(key=lambda x: x["distance_km"])
+    CTX["recyclers"] = out[:5]
+    return {"recyclers_found": len(CTX["recyclers"])}
 
-# ── Lambda handler ────────────────────────────────────────────────────────────
-def _json(status: int, body: dict) -> dict:
-    return {"statusCode": status,
-            "headers": {"content-type": "application/json"},
-            "body": json.dumps(body)}
+def _finish():
+    lo, hi = CTX["totals"]
+    res = {"type": "result", "scan": CTX["scan"], "line_items": CTX["line_items"], "total_min_inr": lo,
+           "total_max_inr": hi, "hazard_messages": CTX["hazards"], "recyclers": CTX["recyclers"],
+           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER}
+    offer = CTX.get("offer")
+    if offer is not None and hi > 0:
+        res["verdict"] = "low" if offer < lo else "high" if offer > hi else "fair"
+    CTX["result"] = res
+    return "Result assembled."
 
+def _complete():  # fills any step the agent skipped; never re-scans the photo
+    if "scan" not in CTX: _analyze()
+    if CTX["scan"]["low_confidence"]:
+        if "result" not in CTX: _clarify()
+        return
+    if "line_items" not in CTX: _price()
+    if "hazards" not in CTX: _safety()
+    if "recyclers" not in CTX: _recyclers()
+    if CTX.get("result", {}).get("type") != "result": _finish()
+
+try:
+    from strands import Agent, tool
+except ImportError:
+    Agent = None
+    def tool(fn): return fn
+
+@tool
+def analyze_image() -> dict:
+    """Analyse the user's photo. Returns confidence and whether it is low."""
+    return _analyze()
+
+@tool
+def request_clarification() -> str:
+    """Ask for a better photo. Call only if analyze_image reported low_confidence."""
+    return _clarify()
+
+@tool
+def price_items() -> dict:
+    """Look up indicative values for the identified items from the price table."""
+    return _price()
+
+@tool
+def get_safety_messages() -> dict:
+    """Load the fixed, reviewed safety messages for any hazards found."""
+    return _safety()
+
+@tool
+def find_recyclers() -> dict:
+    """Find nearest authorized recyclers if the user's location is known."""
+    return _recyclers()
+
+@tool
+def finish() -> str:
+    """Assemble the final result once pricing, safety and recyclers are done."""
+    return _finish()
+
+SYSTEM = """You coordinate a pipeline for KabadiAI. Call analyze_image first. If it reports low_confidence,
+call request_clarification and stop. Otherwise call price_items, get_safety_messages and find_recyclers,
+then finish. Never state prices, hazards or places yourself."""
+
+def _json(status, body):
+    return {"statusCode": status, "headers": {"content-type": "application/json"}, "body": json.dumps(body)}
 
 def handler(event, context):
-    # ── Parse request ─────────────────────────────────────────────────────────
+    global CTX
     try:
-        raw_body = event.get("body") or "{}"
-        if event.get("isBase64Encoded"):
-            raw_body = base64.b64decode(raw_body).decode()
-        body = json.loads(raw_body)
-
-        if not MOCK_ANALYSIS:
-            fmt = MEDIA.get(body.get("media_type", "image/jpeg"))
-            if not fmt:
-                return _json(400, {"error": "unsupported image type"})
-            image_bytes = base64.b64decode(body["image_b64"])
-            if len(image_bytes) > MAX_IMAGE_BYTES:
-                return _json(400, {"error": "image too large; resize before upload"})
-        else:
-            fmt = "jpeg"
-            image_bytes = b""
-
-        lat = float(body["lat"]) if "lat" in body else None
-        lon = float(body["lon"]) if "lon" in body else None
-        dealer_offer = float(body["dealer_offer_inr"]) if "dealer_offer_inr" in body else None
-        language = str(body.get("language", "en"))[:10]
+        raw = event.get("body") or "{}"
+        if event.get("isBase64Encoded"): raw = base64.b64decode(raw).decode()
+        b = json.loads(raw)
+        fmt, img = "jpeg", b""
+        if not MOCK:
+            fmt = MEDIA.get(b.get("media_type", "image/jpeg"))
+            if not fmt: return _json(400, {"error": "unsupported image type"})
+            img = base64.b64decode(b["image_b64"])
+            if len(img) > MAX_BYTES: return _json(400, {"error": "image too large; resize before upload"})
+        lat = float(b["lat"]) if b.get("lat") is not None else None
+        lon = float(b["lon"]) if b.get("lon") is not None else None
+        if lat is not None and not (-90 <= lat <= 90 and -180 <= (lon if lon is not None else 0) <= 180):
+            return _json(400, {"error": "bad coordinates"})
+        offer = float(b["dealer_offer_inr"]) if b.get("dealer_offer_inr") is not None else None
+        if offer is not None and offer < 0: return _json(400, {"error": "bad offer"})
+        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "hi"))[:5]}
     except Exception:
         return _json(400, {"error": "bad request"})
-
-    # ── Set per-invocation context ────────────────────────────────────────────
-    global _invocation_ctx
-    _invocation_ctx = {
-        "mock":            MOCK_ANALYSIS,
-        "image_bytes":     image_bytes,
-        "fmt":             fmt,
-        "lat":             lat,
-        "lon":             lon,
-        "dealer_offer_inr": dealer_offer,
-        "language":        language,
-    }
-
-    # ── Run agent or direct fallback ──────────────────────────────────────────
     try:
-        if STRANDS_AVAILABLE and not MOCK_ANALYSIS:
-            agent = Agent(
-                model=BEDROCK_MODEL_ID,
-                system_prompt=SYSTEM_PROMPT,
-                tools=[
-                    analyze_image,
-                    request_clarification,
-                    fetch_indicative_price,
-                    fetch_disposal_protocol,
-                    find_recyclers,
-                    build_share_summary,
-                ],
-            )
-            # Build the user message from context
-            user_msg = "Analyse the provided e-waste image."
-            if lat and lon:
-                user_msg += f" My location is lat={lat}, lon={lon}."
-            if dealer_offer is not None:
-                user_msg += f" The dealer offered ₹{dealer_offer}."
-            if language != "en":
-                user_msg += f" Respond in language code: {language}."
-
-            # Pass image in the message
-            response = agent([
-                {"role": "user", "content": [
-                    {"image": {"format": fmt, "source": {"bytes": image_bytes}}},
-                    {"text": user_msg},
-                ]}
-            ])
-            # Extract the last tool result that looks like our schema
-            result = _extract_agent_result(response)
-        else:
-            result = _run_direct(_invocation_ctx)
-
-        if MOCK_ANALYSIS:
-            result["mock"] = True
-
-        return _json(200, result)
-
+        if AGENT_MODE and Agent and not MOCK:
+            agent = Agent(model=MODEL_ID, system_prompt=SYSTEM, callback_handler=None,
+                          tools=[analyze_image, request_clarification, price_items, get_safety_messages, find_recyclers, finish])
+            agent("Assess the e-waste photo.")
+        _complete()
+        res = CTX["result"]
+        if MOCK: res["mock"] = True
+        return _json(200, res)
     except Exception as e:
         print("agent error:", repr(e))
         return _json(502, {"error": "analysis failed"})
-
-
-def _extract_agent_result(agent_response) -> dict:
-    """Pull the structured result out of the Strands agent response.
-
-    The agent's final message text may contain a JSON block (if build_share_summary
-    was the last tool call) or we can inspect the tool use history.
-    Fall back to parsing JSON from the response text.
-    """
-    # Try to get the last assistant text and parse JSON from it
-    text = str(agent_response)
-    try:
-        m = re.search(r"\{.*\}", text, re.S)
-        if m:
-            candidate = json.loads(m.group(0))
-            if "type" in candidate:
-                return candidate
-    except (json.JSONDecodeError, AttributeError):
-        pass
-    # If extraction fails, run the direct path as fallback
-    return _run_direct(_invocation_ctx)

@@ -15,48 +15,64 @@ export default function Home() {
   const [coords, setCoords] = useState<{lat: number, lon: number} | null>(null);
   const [dealerOffer, setDealerOffer] = useState<string>("");
 
-  useEffect(() => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        (err) => console.log("Geolocation denied/failed", err),
-        { timeout: 10000, maximumAge: 60000 }
-      );
-    }
-  }, []);
-
   const handleCapture = async (base64: string, mimeType: string) => {
     setLoading(true);
     setResult(null);
+
+    let currentCoords = coords;
+    if (!currentCoords && "geolocation" in navigator) {
+      try {
+        currentCoords = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+            (err) => resolve(null),
+            { timeout: 5000, maximumAge: 60000 }
+          );
+        });
+        if (currentCoords) setCoords(currentCoords);
+      } catch (err) {
+        console.log("Location failed", err);
+      }
+    }
 
     const payload: Record<string, unknown> = {
       image_b64: base64,
       media_type: mimeType,
       language: lang,
     };
-    if (coords) {
-      payload.lat = coords.lat;
-      payload.lon = coords.lon;
+    if (currentCoords) {
+      payload.lat = currentCoords.lat;
+      payload.lon = currentCoords.lon;
     }
     const offerNum = parseFloat(dealerOffer);
     if (!isNaN(offerNum) && offerNum > 0) {
       payload.dealer_offer_inr = offerNum;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 28000);
+
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       if (!res.ok) {
         throw new Error("API returned " + res.status);
       }
       const data = await res.json();
       setResult(data);
-    } catch (err) {
+    } catch (err: any) {
+      clearTimeout(timeoutId);
       console.error(err);
-      setResult({ type: "clarify", clarify_message: t("scanFailed") });
+      if (err.name === "AbortError") {
+        setResult({ type: "clarify", clarify_message: "Request timed out. Please try again." });
+      } else {
+        setResult({ type: "clarify", clarify_message: t("scanFailed") });
+      }
     } finally {
       setLoading(false);
     }

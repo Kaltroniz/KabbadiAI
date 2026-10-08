@@ -111,8 +111,8 @@ def calculate_price(items, price_fetcher):
         source_note = str(row.get("source", ""))
         checked_date = str(row.get("checked_date", ""))
 
-        item_min = round(min_per_kg * weight_kg * count, 2)
-        item_max = round(max_per_kg * weight_kg * count, 2)
+        item_min = 0.0 if component in HAZARDOUS else round(min_per_kg * weight_kg, 2)
+        item_max = 0.0 if component in HAZARDOUS else round(max_per_kg * weight_kg, 2)
 
         total_min += item_min
         total_max += item_max

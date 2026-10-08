@@ -136,11 +136,13 @@ Resources:
     Properties:
       CodeUri: src/agent/
       Handler: app.handler
-      Timeout: 180
+      Timeout: 29
+      MemorySize: 1024
       Environment:
         Variables:
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           MOCK_ANALYSIS: !Ref MockAnalysis
+          AGENT_MODE: "0"
           PRICES_TABLE: !Ref PricesTable
           RECYCLERS_TABLE: !Ref RecyclersTable
       Policies:

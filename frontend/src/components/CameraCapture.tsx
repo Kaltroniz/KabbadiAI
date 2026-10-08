@@ -16,6 +16,7 @@ export default function CameraCapture({ onCapture, isLoading }: CameraCapturePro
   const handleCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
 
     setError(null);
 
