@@ -1,0 +1,16 @@
+[
+  {"component": "motherboard",       "min_inr_per_kg": 200, "max_inr_per_kg": 450, "source": "web listings vary widely, some mixed boards far lower", "checked_date": "2026-10-08"},
+  {"component": "ram_stick",         "min_inr_per_kg": 400, "max_inr_per_kg": 800, "source": "web listing", "checked_date": "2026-10-08"},
+  {"component": "mobile_pcb",        "min_inr_per_kg": 250, "max_inr_per_kg": 550, "source": "web listings", "checked_date": "2026-10-08"},
+  {"component": "copper_wire",       "min_inr_per_kg": 380, "max_inr_per_kg": 600, "source": "mixed to clean insulated range", "checked_date": "2026-10-08"},
+  {"component": "aluminium_heatsink","min_inr_per_kg":  80, "max_inr_per_kg": 130, "source": "web listing", "checked_date": "2026-10-08"},
+  {"component": "charger_adapter",   "min_inr_per_kg":  60, "max_inr_per_kg": 120, "source": "cables and wiring range", "checked_date": "2026-10-08"},
+  {"component": "hard_drive",        "min_inr_per_kg":  40, "max_inr_per_kg":  90, "source": "unverified placeholder", "checked_date": "2026-10-08"},
+  {"component": "li_ion_battery",    "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "hazardous – no value shown, route to recycler", "checked_date": "2026-10-08"},
+  {"component": "alkaline_battery",  "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "no value shown", "checked_date": "2026-10-08"},
+  {"component": "cfl_or_tube_light", "min_inr_per_kg":   0, "max_inr_per_kg":   0, "source": "contains mercury – no value shown", "checked_date": "2026-10-08"},
+  {"component": "screen",            "min_inr_per_kg":   0, "max_inr_per_kg":  15, "source": "low value", "checked_date": "2026-10-08"},
+  {"component": "router_or_modem",   "min_inr_per_kg":  30, "max_inr_per_kg":  90, "source": "unverified placeholder", "checked_date": "2026-10-08"},
+  {"component": "remote",            "min_inr_per_kg":  10, "max_inr_per_kg":  40, "source": "unverified placeholder", "checked_date": "2026-10-08"},
+  {"component": "other",             "min_inr_per_kg":   0, "max_inr_per_kg":  10, "source": "fallback", "checked_date": "2026-10-08"}
+]

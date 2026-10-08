@@ -1,0 +1,52 @@
+[
+  {
+    "id": "R1",
+    "name": "Muskan Technologies",
+    "address": "B-96, Okhla Industrial Area Phase-1, Delhi 110020",
+    "city": "Delhi",
+    "lat": 28.5355,
+    "lon": 77.2750,
+    "source": "DPCC/CPCB approved list 2023",
+    "checked_date": "2026-10-08"
+  },
+  {
+    "id": "R2",
+    "name": "Shivnath Computers",
+    "address": "E-47/2, 1st Floor, Okhla Phase-2, Delhi 110019",
+    "city": "Delhi",
+    "lat": 28.5300,
+    "lon": 77.2700,
+    "source": "DPCC/CPCB approved list 2023",
+    "checked_date": "2026-10-08"
+  },
+  {
+    "id": "R3",
+    "name": "Techchef E-Waste Solutions Pvt Ltd",
+    "address": "C-61, DDA Shed, Okhla Industrial Area, Delhi 110020",
+    "city": "Delhi",
+    "lat": 28.5340,
+    "lon": 77.2780,
+    "source": "DPCC/CPCB approved list 2023",
+    "checked_date": "2026-10-08"
+  },
+  {
+    "id": "R4",
+    "name": "Greenscape Eco Management Pvt Ltd",
+    "address": "348, Patparganj Industrial Area, Delhi 110092",
+    "city": "Delhi",
+    "lat": 28.6280,
+    "lon": 77.3050,
+    "source": "DPCC/CPCB approved list 2023",
+    "checked_date": "2026-10-08"
+  },
+  {
+    "id": "R5",
+    "name": "Fozia Traders",
+    "address": "Khasra 13/1, Saboli, Mandoli Industrial Area, Delhi 110093",
+    "city": "Delhi",
+    "lat": 28.6900,
+    "lon": 77.3000,
+    "source": "DPCC/CPCB approved list 2023",
+    "checked_date": "2026-10-08"
+  }
+]

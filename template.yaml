@@ -19,6 +19,7 @@ Globals:
     MemorySize: 512
 
 Resources:
+  # ── API ──────────────────────────────────────────────────────────────────
   Api:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -30,6 +31,30 @@ Resources:
         ThrottlingBurstLimit: 10
         ThrottlingRateLimit: 5
 
+  # ── DynamoDB tables ───────────────────────────────────────────────────────
+  PricesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: component
+          AttributeType: S
+      KeySchema:
+        - AttributeName: component
+          KeyType: HASH
+
+  RecyclersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  # ── Lambda functions ───────────────────────────────────────────────────────
   ScanFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -39,11 +64,21 @@ Resources:
         Variables:
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           MOCK_ANALYSIS: !Ref MockAnalysis
+          PRICES_TABLE: !Ref PricesTable
+          RECYCLERS_TABLE: !Ref RecyclersTable
       Policies:
         - Statement:
             - Effect: Allow
               Action: [bedrock:InvokeModel]
               Resource: '*'
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt PricesTable.Arn
+                - !GetAtt RecyclersTable.Arn
       Events:
         Scan:
           Type: HttpApi
@@ -55,3 +90,7 @@ Resources:
 Outputs:
   ApiUrl:
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com
+  PricesTableName:
+    Value: !Ref PricesTable
+  RecyclersTableName:
+    Value: !Ref RecyclersTable
