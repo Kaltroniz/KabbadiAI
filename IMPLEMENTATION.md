@@ -24,167 +24,6 @@ KabadiAI is a multilingual mobile web app (PWA) designed to combat e-waste. User
 
 The backend is built around discrete Lambda functions defined in `template.yaml`. 
 
-### The Strands Agent (`src/agent/app.py`)
-This is the "brain" of KabadiAI. It receives the Base64 image and coordinates, then intelligently calls tools to build the response.
-
-```python
-import json
-import os
-import boto3
-from aws_lambda_powertools import Logger
-
-logger = Logger()
-dynamodb = boto3.resource('dynamodb')
-
-def analyze_image(image_b64: str) -> dict:
-    # Uses LLM to inspect image and identify components. 
-    # Returns count, components, and confidence score.
-    return {
-        "confidence": 85,
-        "items": [{"component": "motherboard_grade_a", "count": 2}]
-    }
-
-def fetch_indicative_price(component: str) -> dict:
-    table = dynamodb.Table(os.environ['PRICES_TABLE'])
-    response = table.get_item(Key={'component': component})
-    return response.get('Item', {"min_inr": 0, "max_inr": 0})
-
-def fetch_disposal_protocol(component: str) -> dict:
-    table = dynamodb.Table(os.environ['DISPOSAL_PROTOCOLS_TABLE'])
-    response = table.get_item(Key={'component': component})
-    return response.get('Item', {})
-
-def lambda_handler(event, context):
-    body = json.loads(event.get("body", "{}"))
-    image_b64 = body.get("image_b64")
-    
-    # 1. Analyze Image
-    analysis = analyze_image(image_b64)
-    if analysis["confidence"] < 70:
-        return {"statusCode": 200, "body": json.dumps({"type": "clarify", "clarify_message": "Low confidence. Please retake photo."})}
-    
-    # 2. Process Items (Prices & Hazards)
-    line_items = []
-    hazard_messages = []
-    for item in analysis["items"]:
-        price = fetch_indicative_price(item["component"])
-        hazard = fetch_disposal_protocol(item["component"])
-        
-        line_items.append({
-            "component": item["component"],
-            "count": item["count"],
-            "min_inr": int(price.get("min_inr", 0)) * item["count"],
-            "max_inr": int(price.get("max_inr", 0)) * item["count"]
-        })
-        if hazard and hazard.get("hazard_message"):
-            hazard_messages.append({"message": hazard["hazard_message"]})
-            
-    total_min = sum(i["min_inr"] for i in line_items)
-    total_max = sum(i["max_inr"] for i in line_items)
-    
-    return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "total_min_inr": total_min,
-            "total_max_inr": total_max,
-            "line_items": line_items,
-            "hazard_messages": hazard_messages,
-            "recyclers": [] # Fetched via Haversine logic
-        })
-    }
-```
-
----
-
-## 4. Frontend Implementation (Next.js)
-
-The frontend focuses heavily on a mobile-first, app-like experience (PWA) with premium "glassmorphism" UI elements.
-
-### Camera Capture & Client-Side Resizing
-**Idea:** Uploading 10MB phone camera photos to a Lambda function causes timeouts and excessive payload sizes.
-**Implementation:** Intercept the `<input type="file" capture="environment">`, draw it to an HTML5 `<canvas>`, resize to max `1200px`, and export as a compressed Base64 string.
-
-```tsx
-// frontend/src/components/CameraCapture.tsx
-const handleCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-
-  const img = new Image();
-  const url = URL.createObjectURL(file);
-  img.src = url;
-
-  img.onload = () => {
-    URL.revokeObjectURL(url);
-    
-    let { width, height } = img;
-    const MAX_DIMENSION = 1200;
-
-    if (width > height && width > MAX_DIMENSION) {
-      height *= MAX_DIMENSION / width;
-      width = MAX_DIMENSION;
-    } else if (height > MAX_DIMENSION) {
-      width *= MAX_DIMENSION / height;
-      height = MAX_DIMENSION;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext("2d");
-    ctx?.drawImage(img, 0, 0, width, height);
-    
-    // Export as highly compressed base64 jpeg
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-    const base64 = dataUrl.split(",")[1];
-    onCapture(base64, "image/jpeg");
-  };
-};
-```
-
-### Result Display & WhatsApp Sharing
-**Idea:** Scrap dealers don't need the app; they use WhatsApp.
-**Implementation:** The UI renders the hazard banner, indicative value, and nearest recyclers. The "Share with WhatsApp" button utilizes the native Web Share API to instantly trigger the mobile device's share sheet.
-
-```tsx
-// frontend/src/components/ResultDisplay.tsx
-const handleShare = async () => {
-  if (!navigator.share) {
-    alert("Sharing not supported on this browser.");
-    return;
-  }
-  try {
-    let text = `KabadiAI Appraisal:\nValue: ₹${result.total_min_inr} - ₹${result.total_max_inr}\nItems: ${(result.line_items as any[]).map(i=>i.component).join(', ')}\n`;
-    
-    if ((result.hazard_messages as any[])?.length > 0) {
-      text += `Hazards Present!\n`;
-    }
-    
-    text += `\nKeep e-waste out of landfills.`;
-
-    await navigator.share({
-      title: 'KabadiAI E-Waste Report',
-      text: text,
-    });
-  } catch (err) {
-    console.error("Error sharing:", err);
-  }
-};
-```
-
----
-
-## 5. Hackathon "Winning" Traits Implemented
-1. **Strict Guardrails:** Environmental hacks require factual safety data. The agent is hard-coded to *only* use predefined safety protocols from DynamoDB, completely eliminating the risk of LLM hallucinations for chemical/hazard advice.
-2. **Bandwidth Optimization:** The client-side canvas resizing ensures the app works beautifully on slower mobile networks in India (critical for the target audience).
-3. **No App-Install Friction:** The kabadiwala (dealer) just receives a standard WhatsApp message. Only the end-user needs the PWA.
-4. **Mockability:** The dual-path Agent logic (Real Bedrock vs. Sequential Mock) ensures that even if API keys expire or rate limits hit during the demo day (Oct 10 at DTU), the app continues to function perfectly for the judges.
-
-
-## 6. Full Source Code Reference
-
-
 ### template.yaml
 `yaml
 AWSTemplateFormatVersion: '2010-09-09'
@@ -325,11 +164,13 @@ Resources:
     Properties:
       CodeUri: src/agent/
       Handler: app.handler
-      Timeout: 180
+      Timeout: 29
+      MemorySize: 1024
       Environment:
         Variables:
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           MOCK_ANALYSIS: !Ref MockAnalysis
+          AGENT_MODE: "0"
           PRICES_TABLE: !Ref PricesTable
           RECYCLERS_TABLE: !Ref RecyclersTable
       Policies:
@@ -359,564 +200,250 @@ Outputs:
     Value: !Ref PricesTable
   RecyclersTableName:
     Value: !Ref RecyclersTable
-
 `
 
 ### src/agent/app.py
 `python
-"""KabadiAI Strands agent — POST /agent
-
-This is the agentic entry point.  The agent receives a base64 image (and
-optionally a user weight correction or dealer offer) and coordinates five
-tools to produce a structured triage result.
-
-Confidence gate: if the scan confidence is below 70, the agent returns a
-clarify response immediately, asking for a better photo.  It does NOT guess.
-
-All hazard text comes from a fixed reviewed table (HAZARD_MESSAGES).
-Facts (prices, disposal protocols) come from DynamoDB.  The model is never
-asked to produce price estimates, legal claims, or safety text.
-
-Request body:
-    {
-        "image_b64": "<base64>",
-        "media_type": "image/jpeg" | "image/png" | "image/webp",
-        "lat": <optional float>,
-        "lon": <optional float>,
-        "dealer_offer_inr": <optional float>,
-        "language": "en" | "hi" | ...  (default "en")
-    }
-
-Response 200:
-    {
-        "type": "result" | "clarify",
-        "scan": { ... },           # only when type=result
-        "line_items": [ ... ],     # only when type=result
-        "total_min_inr": <float>,  # only when type=result
-        "total_max_inr": <float>,  # only when type=result
-        "hazards": [ ... ],        # only when type=result
-        "recyclers": [ ... ],      # only when type=result and lat/lon provided
-        "verdict": "low"|"fair"|"high",  # only when dealer_offer_inr supplied
-        "clarify_message": "...",  # only when type=clarify
-        "disclaimer": "..."
-    }
-
-Errors: 400 (bad request), 502 (analysis/agent error).
-"""
-import base64, json, os, sys
+"""KabadiAI POST /agent.
+Facts (prices, hazard text, recyclers) come from tables and fixed text, never from the model.
+The model only reads the photo. Tools take no data arguments, so the agent cannot corrupt numbers.
+AGENT_MODE=1 lets a Strands agent choose the order of steps; default (0) runs the same steps
+deterministically. API Gateway HTTP APIs cut requests at 30 s, so measure agent latency first."""
+import base64, json, math, os, re
 import boto3
 
-# ── Environment ───────────────────────────────────────────────────────────────
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0")
-MOCK_ANALYSIS    = os.environ.get("MOCK_ANALYSIS", "0") == "1"
-PRICES_TABLE     = os.environ.get("PRICES_TABLE", "")
-RECYCLERS_TABLE  = os.environ.get("RECYCLERS_TABLE", "")
-
-CONFIDENCE_THRESHOLD = 70
-MAX_IMAGE_BYTES      = 4_000_000
-
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0")
+MOCK = os.environ.get("MOCK_ANALYSIS", "0") == "1"
+AGENT_MODE = os.environ.get("AGENT_MODE", "0") == "1"
+PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
+RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
+MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
-
-COMPONENTS = {
-    "motherboard", "ram_stick", "mobile_pcb", "li_ion_battery", "alkaline_battery",
-    "copper_wire", "charger_adapter", "hard_drive", "aluminium_heatsink",
-    "screen", "cfl_or_tube_light", "router_or_modem", "remote", "other",
-}
+COMPONENTS = {"motherboard", "ram_stick", "mobile_pcb", "li_ion_battery", "alkaline_battery", "copper_wire",
+              "charger_adapter", "hard_drive", "aluminium_heatsink", "screen", "cfl_or_tube_light",
+              "router_or_modem", "remote", "other"}
 CONDITIONS = {"intact", "corroded", "swollen", "leaking", "broken", "unknown"}
-HAZARDS_ENUM = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass"}
-HAZARDOUS_COMPONENTS = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
+HAZARDS = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass"}
+NO_VALUE = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
+DISCLAIMER = "Indicative only, not an official valuation. Recycler data covers Delhi-NCR only (DPCC/CPCB list, 2023)."
 
-DISCLAIMER = (
-    "Indicative only. Prices vary by condition, market, and date. "
-    "Data covers Delhi-NCR authorized recyclers only (DPCC/CPCB 2023). "
-    "Verify before acting on any value or recycler listing."
-)
-
-# ── Fixed, reviewed hazard messages (never model-generated) ──────────────────
-# KEY RULE: this text must be reviewed by a native speaker before the demo.
-# Safety text must NOT go through machine translation.
+# Fixed safety text. Hindi is a DRAFT: a native speaker must review before the demo.
 HAZARD_MESSAGES = {
-    "swollen_battery": {
-        "en": "DANGER: swollen lithium battery. Do not burn, puncture or crush.",
-        "hi": "Khatra: Lithium battery phool gayi hai. Ise jalaayein, chhedein ya dabaayen nahi.",
-    },
-    "leaking_battery": {
-        "en": "Leaking battery. Do not touch with bare hands. Keep it separate.",
-        "hi": "Battery se liquid aa raha hai. Khali haathon se mat chhoein. Alag rakhein.",
-    },
-    "mercury_lamp": {
-        "en": "Contains mercury. Do not break the tube or bulb.",
-        "hi": "Isme mercury hai. Tube ya bulb mat todein.",
-    },
-    "crt_or_lead_glass": {
-        "en": "Hazardous: lead glass. Do not break open.",
-        "hi": "Khatarnaak: lead glass. Ise mat todein.",
-    },
+    "swollen_battery": {"en": "DANGER: swollen lithium battery. Do not burn, puncture or crush.",
+                        "hi": "खतरा: फूली हुई लिथियम बैटरी। इसे जलाएं नहीं, छेदें नहीं, दबाएं नहीं।"},
+    "leaking_battery": {"en": "Leaking battery. Do not touch with bare hands. Keep it separate.",
+                        "hi": "बैटरी से तरल निकल रहा है। नंगे हाथ से न छुएं। इसे अलग रखें।"},
+    "mercury_lamp": {"en": "Contains mercury. Do not break the tube or bulb.",
+                     "hi": "इसमें पारा (मरकरी) है। ट्यूब या बल्ब न तोड़ें।"},
+    "crt_or_lead_glass": {"en": "Hazardous: lead glass. Do not break open.",
+                          "hi": "खतरनाक: इसमें सीसे का कांच है। इसे न तोड़ें।"},
 }
-GENERAL_WARNING = {
-    "en": "Never burn circuit boards or use acid to extract metal.",
-    "hi": "Circuit boards kabhi mat jalaayein aur dhaatu nikaalane ke liye acid ka upyog mat karein.",
-}
+GENERAL = {"en": "Never burn circuit boards or use acid to extract metal.",
+           "hi": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।"}
 
-# ── DynamoDB helpers ──────────────────────────────────────────────────────────
-_ddb_resource = None
+PROMPT = f"""You assess photographed discarded electronics in India. Return ONLY one JSON object:
+{{"items":[{{"component":<one of {sorted(COMPONENTS)}>,"condition":<one of {sorted(CONDITIONS)}>,"count":<int>,"est_weight_g":<int, TOTAL weight of all units in this line>}}],
+ "hazards":[<subset of {sorted(HAZARDS)}>],"confidence":<0-100>,"notes":"<short>"}}
+List only what is visible. Lower confidence if blurry, dark or hidden. Flag swollen_battery only if a battery visibly bulges."""
 
-def _ddb():
-    global _ddb_resource
-    if _ddb_resource is None:
-        _ddb_resource = boto3.resource("dynamodb")
-    return _ddb_resource
+MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "count": 1, "est_weight_g": 320},
+                       {"component": "copper_wire", "condition": "intact", "count": 3, "est_weight_g": 270},
+                       {"component": "li_ion_battery", "condition": "swollen", "count": 1, "est_weight_g": 150}],
+             "hazards": [], "confidence": 85, "notes": "MOCK DATA, Bedrock not called."}
 
+_ddb = None
+def _table(name):
+    global _ddb
+    _ddb = _ddb or boto3.resource("dynamodb")
+    return _ddb.Table(name)
 
-def _get_price_row(component: str) -> dict:
-    table = _ddb().Table(PRICES_TABLE)
-    item = table.get_item(Key={"component": component}).get("Item")
-    if not item:
-        item = table.get_item(Key={"component": "other"}).get("Item", {
-            "component": "other", "min_inr_per_kg": 0, "max_inr_per_kg": 10,
-            "source": "fallback", "checked_date": "unknown",
-        })
-    return item
+def _price_row(comp):
+    t = _table(PRICES_TABLE)
+    return t.get_item(Key={"component": comp}).get("Item") or t.get_item(Key={"component": "other"}).get("Item") or {}
 
+def _all_recyclers():
+    return _table(RECYCLERS_TABLE).scan().get("Items", [])
 
-def _scan_all_recyclers() -> list:
-    table = _ddb().Table(RECYCLERS_TABLE)
-    return table.scan().get("Items", [])
+def _km(a, b, c, d):
+    p = math.pi / 180
+    x = math.sin((c - a) * p / 2) ** 2 + math.cos(a * p) * math.cos(c * p) * math.sin((d - b) * p / 2) ** 2
+    return 12742 * math.asin(math.sqrt(x))
 
-
-# ── Bedrock scan (mirrors src/scan/app.py but inline for the agent) ───────────
-import re
-
-SCAN_PROMPT = f"""You assess photographed discarded electronics for a household in India.
-Return ONLY one JSON object, no prose, in this shape:
-{{"items":[{{"component":<one of {sorted(COMPONENTS)}>,\"condition\":<one of {sorted(CONDITIONS)}>,\"count\":<int>,\"est_weight_g\":<int>}}],
- "hazards":[<subset of {sorted(HAZARDS_ENUM)}>],
- "confidence":<0-100>,
- "notes":"<short, plain English>"}}
-Rules: list only what you can actually see. If the photo is blurry, dark or items are hidden, lower the confidence.
-Flag swollen_battery only if a battery visibly bulges. Never guess hidden parts."""
-
-
-def _extract_json(text: str) -> dict:
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        raise ValueError("no json in model output")
-    return json.loads(m.group(0))
-
-
-def _clean_scan(raw: dict) -> dict:
+def _clean(raw):
     items = []
     for it in raw.get("items", [])[:20]:
-        comp = it.get("component") if it.get("component") in COMPONENTS else "other"
-        cond = it.get("condition") if it.get("condition") in CONDITIONS else "unknown"
-        items.append({"component": comp, "condition": cond,
-                       "count": max(1, int(it.get("count", 1) or 1)),
-                       "est_weight_g": max(0, int(it.get("est_weight_g", 0) or 0))})
-    hazards = [h for h in raw.get("hazards", []) if h in HAZARDS_ENUM]
-    conf = max(0, min(100, int(raw.get("confidence", 0) or 0)))
-    return {"items": items, "hazards": hazards, "confidence": conf,
-            "notes": str(raw.get("notes", ""))[:300]}
+        items.append({"component": it.get("component") if it.get("component") in COMPONENTS else "other",
+                      "condition": it.get("condition") if it.get("condition") in CONDITIONS else "unknown",
+                      "count": max(1, int(it.get("count", 1) or 1)),
+                      "est_weight_g": max(0, int(it.get("est_weight_g", 0) or 0))})
+    return {"items": items, "hazards": [h for h in raw.get("hazards", []) if h in HAZARDS],
+            "confidence": max(0, min(100, int(raw.get("confidence", 0) or 0))), "notes": str(raw.get("notes", ""))[:300]}
 
-
-def _bedrock_scan(image_bytes: bytes, fmt: str) -> dict:
-    bedrock = boto3.client("bedrock-runtime")
+def _bedrock_scan(img, fmt):
+    client = boto3.client("bedrock-runtime")
     for _ in range(2):
         try:
-            r = bedrock.converse(
-                modelId=BEDROCK_MODEL_ID,
-                messages=[{"role": "user", "content": [
-                    {"image": {"format": fmt, "source": {"bytes": image_bytes}}},
-                    {"text": SCAN_PROMPT},
-                ]}],
-                inferenceConfig={"maxTokens": 1000},
-            )
-            text = r["output"]["message"]["content"][0]["text"]
-            return _clean_scan(_extract_json(text))
-        except (ValueError, KeyError, TypeError):
+            r = client.converse(modelId=MODEL_ID, messages=[{"role": "user", "content": [
+                {"image": {"format": fmt, "source": {"bytes": img}}}, {"text": PROMPT}]}],
+                inferenceConfig={"maxTokens": 1000})
+            m = re.search(r"\{.*\}", r["output"]["message"]["content"][0]["text"], re.S)
+            return _clean(json.loads(m.group(0)))
+        except (AttributeError, ValueError, KeyError, TypeError):
             continue
-        except Exception as e:
-            print("bedrock error:", repr(e))
-            raise
-    raise RuntimeError("model returned unparseable output after retries")
+    raise RuntimeError("model returned invalid output")
 
-
-# ── Haversine distance ────────────────────────────────────────────────────────
-import math
-
-def _haversine_km(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return R * 2 * math.asin(math.sqrt(a))
-
-
-# ── Strands tools ─────────────────────────────────────────────────────────────
-# Import is conditional so the Lambda can still boot (and fail gracefully)
-# if strands-agents is not yet installed.
-try:
-    from strands import Agent, tool as strands_tool
-    STRANDS_AVAILABLE = True
-except ImportError:
-    STRANDS_AVAILABLE = False
-    # Stub decorator so the module still imports cleanly in tests
-    def strands_tool(fn):
-        return fn
-
-
-# Shared state per-invocation — populated by the handler before calling the agent
-_invocation_ctx: dict = {}
-
-
-@strands_tool
-def analyze_image() -> dict:
-    """Analyse the photographed e-waste using Amazon Bedrock vision.
-
-    Identifies components, their condition, approximate weight and any hazards
-    visible in the image.  If confidence is below 70 the result includes
-    a low_confidence flag and the agent MUST call request_clarification next
-    instead of proceeding to price or recycler lookup.
-
-    Returns a scan result dict with keys: items, hazards, confidence, notes,
-    and optionally low_confidence (bool).
-    """
-    ctx = _invocation_ctx
-    if ctx.get("mock"):
-        scan = {
-            "items": [
-                {"component": "motherboard",    "condition": "corroded", "count": 1, "est_weight_g": 320},
-                {"component": "copper_wire",    "condition": "intact",   "count": 3, "est_weight_g":  90},
-                {"component": "li_ion_battery", "condition": "swollen",  "count": 1, "est_weight_g": 150},
-            ],
-            "hazards": ["swollen_battery"],
-            "confidence": 85,
-            "notes": "MOCK DATA – Bedrock not called.",
-        }
-    else:
-        scan = _bedrock_scan(ctx["image_bytes"], ctx["fmt"])
-
-    if scan["confidence"] < CONFIDENCE_THRESHOLD:
-        scan["low_confidence"] = True
-    ctx["scan"] = scan
-    return scan
-
-
-@strands_tool
-def request_clarification() -> dict:
-    """Ask the user for a better photo because confidence is too low to proceed.
-
-    Call this ONLY when analyze_image returned low_confidence=True.
-    Never guess components or prices when confidence is below the threshold.
-
-    Returns a clarify response dict.
-    """
-    return {
-        "type": "clarify",
-        "clarify_message": (
-            "The photo is too blurry or dark to identify the items reliably. "
-            "Please take a closer, well-lit photo and try again."
-        ),
-    }
-
-
-@strands_tool
-def fetch_indicative_price(component: str, count: int, est_weight_g: int) -> dict:
-    """Look up the indicative scrap value for one component from the price table.
-
-    Args:
-        component: One of the known component enum values.
-        count: Number of units of this component.
-        est_weight_g: Estimated weight in grams.
-
-    Returns a dict with min_inr, max_inr, hazardous flag, source note and
-    checked_date.  Hazardous items return min_inr=0 and max_inr=0.
-    """
-    if component not in COMPONENTS:
-        component = "other"
-    row = _get_price_row(component)
-    min_pkg = float(row.get("min_inr_per_kg", 0))
-    max_pkg = float(row.get("max_inr_per_kg", 0))
-    weight_kg = max(0, int(est_weight_g)) / 1000.0
-    item_min = round(min_pkg * weight_kg * count, 2)
-    item_max = round(max_pkg * weight_kg * count, 2)
-    return {
-        "component":    component,
-        "count":        count,
-        "est_weight_g": est_weight_g,
-        "min_inr":      item_min,
-        "max_inr":      item_max,
-        "hazardous":    component in HAZARDOUS_COMPONENTS,
-        "source":       str(row.get("source", "")),
-        "checked_date": str(row.get("checked_date", "")),
-    }
-
-
-@strands_tool
-def fetch_disposal_protocol(hazard_code: str, language: str = "en") -> dict:
-    """Return the fixed, reviewed safety message for a hazard code.
-
-    IMPORTANT: This returns text from a fixed reviewed table.  Never
-    paraphrase or translate this text through the model.  Native speakers
-    must review all translations before the demo.
-
-    Args:
-        hazard_code: One of swollen_battery, leaking_battery, mercury_lamp,
-                     crt_or_lead_glass.
-        language: BCP-47 language code, default "en".  Falls back to "en"
-                  if the requested language is not in the table.
-
-    Returns a dict with hazard_code, message (fixed text), and general_warning.
-    """
-    if hazard_code not in HAZARD_MESSAGES:
-        return {"hazard_code": hazard_code, "message": None, "general_warning": None}
-    msgs = HAZARD_MESSAGES[hazard_code]
-    lang = language if language in msgs else "en"
-    general = GENERAL_WARNING.get(lang, GENERAL_WARNING["en"])
-    return {
-        "hazard_code":     hazard_code,
-        "message":         msgs[lang],
-        "general_warning": general,
-    }
-
-
-@strands_tool
-def find_recyclers(lat: float, lon: float) -> list:
-    """Find up to 5 nearest authorized e-waste recyclers sorted by distance.
-
-    Args:
-        lat: User latitude in decimal degrees.
-        lon: User longitude in decimal degrees.
-
-    Returns a list of recycler dicts with id, name, address, city,
-    distance_km and directions_url.  Coverage is Delhi-NCR only.
-    """
-    all_r = _scan_all_recyclers()
-    enriched = []
-    for r in all_r:
-        dist = _haversine_km(lat, lon, float(r["lat"]), float(r["lon"]))
-        enriched.append({
-            "id":             r["id"],
-            "name":           r["name"],
-            "address":        r["address"],
-            "city":           r["city"],
-            "distance_km":    round(dist, 2),
-            "directions_url": f"https://maps.google.com/maps?daddr={r['lat']},{r['lon']}&saddr={lat},{lon}",
-        })
-    enriched.sort(key=lambda x: x["distance_km"])
-    return enriched[:5]
-
-
-@strands_tool
-def build_share_summary(
-    scan: dict,
-    line_items: list,
-    total_min_inr: float,
-    total_max_inr: float,
-    hazard_messages: list,
-) -> dict:
-    """Assemble the final structured result that the frontend will render.
-
-    Args:
-        scan: The clean scan dict from analyze_image.
-        line_items: Priced line items from fetch_indicative_price calls.
-        total_min_inr: Sum of min values across all items.
-        total_max_inr: Sum of max values across all items.
-        hazard_messages: List of dicts from fetch_disposal_protocol calls.
-
-    Returns the final result dict to be returned to the frontend.
-    """
-    return {
-        "type":          "result",
-        "scan":          scan,
-        "line_items":    line_items,
-        "total_min_inr": round(total_min_inr, 2),
-        "total_max_inr": round(total_max_inr, 2),
-        "hazard_messages": hazard_messages,
-        "disclaimer":    DISCLAIMER,
-    }
-
-
-# ── Agent system prompt ───────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are KabadiAI, an assistant that helps Indian households
-understand the value and hazards of their discarded electronics (e-waste).
-
-Follow this exact sequence every time:
-1. Call analyze_image to identify items and hazards.
-2. If analyze_image returns low_confidence=true, call request_clarification
-   immediately and stop. Do not guess values or components.
-3. For each item returned:
-   a. If the component is valuable (min_inr_per_kg > 0), call fetch_indicative_price.
-   b. If the component is hazardous (li_ion_battery, alkaline_battery,
-      cfl_or_tube_light), call fetch_disposal_protocol for each hazard code.
-4. For each hazard in the scan result, call fetch_disposal_protocol.
-5. If lat/lon are available, call find_recyclers.
-6. Call build_share_summary with the collected data and return its result.
-
-Rules:
-- Never invent prices, weights, or component names.
-- Never produce safety text yourself — always use fetch_disposal_protocol.
-- Never claim official valuations, government endorsement, or EPR subsidies.
-- Always label values as indicative.
-- Data covers Delhi-NCR recyclers only. Say so when recyclers are returned."""
-
-
-# ── Fallback: non-agent path (used when strands not available) ────────────────
-def _run_direct(ctx: dict) -> dict:
-    """Direct (non-agent) execution path used as fallback or in mock mode.
-
-    Calls each tool function directly in the correct sequence without a
-    Strands agent.  Produces the same output schema.
-    """
-    scan = analyze_image()
-
-    if scan.get("low_confidence"):
-        return request_clarification()
-
-    line_items = []
-    total_min, total_max = 0.0, 0.0
-    hazard_msgs = []
-    language = ctx.get("language", "en")
-
+def _hazards(scan):  # model flags plus rules, so a swollen battery is never missed
+    h = set(scan["hazards"])
     for it in scan["items"]:
-        priced = fetch_indicative_price(it["component"], it["count"], it["est_weight_g"])
-        line_items.append(priced)
-        total_min += priced["min_inr"]
-        total_max += priced["max_inr"]
+        c, k = it["component"], it["condition"]
+        if c == "li_ion_battery" and k == "swollen": h.add("swollen_battery")
+        if k == "leaking" and c in ("li_ion_battery", "alkaline_battery"): h.add("leaking_battery")
+        if c == "cfl_or_tube_light": h.add("mercury_lamp")
+    return sorted(h & HAZARDS)
 
-    for hazard_code in scan["hazards"]:
-        msg = fetch_disposal_protocol(hazard_code, language)
-        hazard_msgs.append(msg)
+CTX = {}
 
-    result = build_share_summary(scan, line_items, total_min, total_max, hazard_msgs)
+def _analyze():
+    scan = json.loads(json.dumps(MOCK_SCAN)) if MOCK else _bedrock_scan(CTX["image"], CTX["fmt"])
+    scan["low_confidence"] = scan["confidence"] < MIN_CONF
+    CTX["scan"] = scan
+    return {"confidence": scan["confidence"], "low_confidence": scan["low_confidence"], "items": len(scan["items"])}
 
-    if ctx.get("lat") and ctx.get("lon"):
-        result["recyclers"] = find_recyclers(ctx["lat"], ctx["lon"])
+def _clarify():
+    CTX["result"] = {"type": "clarify", "scan": {"confidence": CTX["scan"]["confidence"]},
+                     "clarify_message": "The photo is too blurry or dark. Please take a closer, well-lit photo."}
+    return "Asked the user for a better photo. Stop."
 
-    dealer = ctx.get("dealer_offer_inr")
-    if dealer is not None:
-        if dealer < total_min:
-            verdict = "low"
-        elif dealer > total_max:
-            verdict = "high"
-        else:
-            verdict = "fair"
-        result["verdict"] = verdict
+def _price():
+    rows, lo_t, hi_t = [], 0.0, 0.0
+    for it in CTX["scan"]["items"]:
+        row, kg = _price_row(it["component"]), it["est_weight_g"] / 1000
+        zero = it["component"] in NO_VALUE
+        lo = 0.0 if zero else round(float(row.get("min_inr_per_kg", 0)) * kg, 2)
+        hi = 0.0 if zero else round(float(row.get("max_inr_per_kg", 0)) * kg, 2)
+        lo_t, hi_t = lo_t + lo, hi_t + hi
+        rows.append({"component": it["component"], "condition": it["condition"], "count": it["count"],
+                     "est_weight_g": it["est_weight_g"], "min_inr": lo, "max_inr": hi, "hazardous": zero,
+                     "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", ""))})
+    CTX["line_items"], CTX["totals"] = rows, (round(lo_t, 2), round(hi_t, 2))
+    return {"total_min_inr": CTX["totals"][0], "total_max_inr": CTX["totals"][1]}
 
-    return result
+def _safety():
+    lang = CTX["lang"]
+    CTX["hazards"] = [{"hazard_code": c, "message": HAZARD_MESSAGES[c].get(lang, HAZARD_MESSAGES[c]["en"])}
+                      for c in _hazards(CTX["scan"])]
+    return {"hazards_found": len(CTX["hazards"])}
 
+def _recyclers():
+    lat, lon = CTX.get("lat"), CTX.get("lon")
+    out = []
+    if lat is not None and lon is not None:
+        for r in _all_recyclers():
+            d = _km(lat, lon, float(r["lat"]), float(r["lon"]))
+            out.append({"id": r["id"], "name": r["name"], "address": r["address"], "city": r["city"],
+                        "distance_km": round(d, 2),
+                        "directions_url": f"https://maps.google.com/maps?daddr={r['lat']},{r['lon']}&saddr={lat},{lon}"})
+        out.sort(key=lambda x: x["distance_km"])
+    CTX["recyclers"] = out[:5]
+    return {"recyclers_found": len(CTX["recyclers"])}
 
-# ── Lambda handler ────────────────────────────────────────────────────────────
-def _json(status: int, body: dict) -> dict:
-    return {"statusCode": status,
-            "headers": {"content-type": "application/json"},
-            "body": json.dumps(body)}
+def _finish():
+    lo, hi = CTX["totals"]
+    res = {"type": "result", "scan": CTX["scan"], "line_items": CTX["line_items"], "total_min_inr": lo,
+           "total_max_inr": hi, "hazard_messages": CTX["hazards"], "recyclers": CTX["recyclers"],
+           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER}
+    offer = CTX.get("offer")
+    if offer is not None and hi > 0:
+        res["verdict"] = "low" if offer < lo else "high" if offer > hi else "fair"
+    CTX["result"] = res
+    return "Result assembled."
 
+def _complete():  # fills any step the agent skipped; never re-scans the photo
+    if "scan" not in CTX: _analyze()
+    if CTX["scan"]["low_confidence"]:
+        if "result" not in CTX: _clarify()
+        return
+    if "line_items" not in CTX: _price()
+    if "hazards" not in CTX: _safety()
+    if "recyclers" not in CTX: _recyclers()
+    if CTX.get("result", {}).get("type") != "result": _finish()
+
+try:
+    from strands import Agent, tool
+except ImportError:
+    Agent = None
+    def tool(fn): return fn
+
+@tool
+def analyze_image() -> dict:
+    """Analyse the user's photo. Returns confidence and whether it is low."""
+    return _analyze()
+
+@tool
+def request_clarification() -> str:
+    """Ask for a better photo. Call only if analyze_image reported low_confidence."""
+    return _clarify()
+
+@tool
+def price_items() -> dict:
+    """Look up indicative values for the identified items from the price table."""
+    return _price()
+
+@tool
+def get_safety_messages() -> dict:
+    """Load the fixed, reviewed safety messages for any hazards found."""
+    return _safety()
+
+@tool
+def find_recyclers() -> dict:
+    """Find nearest authorized recyclers if the user's location is known."""
+    return _recyclers()
+
+@tool
+def finish() -> str:
+    """Assemble the final result once pricing, safety and recyclers are done."""
+    return _finish()
+
+SYSTEM = """You coordinate a pipeline for KabadiAI. Call analyze_image first. If it reports low_confidence,
+call request_clarification and stop. Otherwise call price_items, get_safety_messages and find_recyclers,
+then finish. Never state prices, hazards or places yourself."""
+
+def _json(status, body):
+    return {"statusCode": status, "headers": {"content-type": "application/json"}, "body": json.dumps(body)}
 
 def handler(event, context):
-    # ── Parse request ─────────────────────────────────────────────────────────
+    global CTX
     try:
-        raw_body = event.get("body") or "{}"
-        if event.get("isBase64Encoded"):
-            raw_body = base64.b64decode(raw_body).decode()
-        body = json.loads(raw_body)
-
-        if not MOCK_ANALYSIS:
-            fmt = MEDIA.get(body.get("media_type", "image/jpeg"))
-            if not fmt:
-                return _json(400, {"error": "unsupported image type"})
-            image_bytes = base64.b64decode(body["image_b64"])
-            if len(image_bytes) > MAX_IMAGE_BYTES:
-                return _json(400, {"error": "image too large; resize before upload"})
-        else:
-            fmt = "jpeg"
-            image_bytes = b""
-
-        lat = float(body["lat"]) if "lat" in body else None
-        lon = float(body["lon"]) if "lon" in body else None
-        dealer_offer = float(body["dealer_offer_inr"]) if "dealer_offer_inr" in body else None
-        language = str(body.get("language", "en"))[:10]
+        raw = event.get("body") or "{}"
+        if event.get("isBase64Encoded"): raw = base64.b64decode(raw).decode()
+        b = json.loads(raw)
+        fmt, img = "jpeg", b""
+        if not MOCK:
+            fmt = MEDIA.get(b.get("media_type", "image/jpeg"))
+            if not fmt: return _json(400, {"error": "unsupported image type"})
+            img = base64.b64decode(b["image_b64"])
+            if len(img) > MAX_BYTES: return _json(400, {"error": "image too large; resize before upload"})
+        lat = float(b["lat"]) if b.get("lat") is not None else None
+        lon = float(b["lon"]) if b.get("lon") is not None else None
+        if lat is not None and not (-90 <= lat <= 90 and -180 <= (lon if lon is not None else 0) <= 180):
+            return _json(400, {"error": "bad coordinates"})
+        offer = float(b["dealer_offer_inr"]) if b.get("dealer_offer_inr") is not None else None
+        if offer is not None and offer < 0: return _json(400, {"error": "bad offer"})
+        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "hi"))[:5]}
     except Exception:
         return _json(400, {"error": "bad request"})
-
-    # ── Set per-invocation context ────────────────────────────────────────────
-    global _invocation_ctx
-    _invocation_ctx = {
-        "mock":            MOCK_ANALYSIS,
-        "image_bytes":     image_bytes,
-        "fmt":             fmt,
-        "lat":             lat,
-        "lon":             lon,
-        "dealer_offer_inr": dealer_offer,
-        "language":        language,
-    }
-
-    # ── Run agent or direct fallback ──────────────────────────────────────────
     try:
-        if STRANDS_AVAILABLE and not MOCK_ANALYSIS:
-            agent = Agent(
-                model=BEDROCK_MODEL_ID,
-                system_prompt=SYSTEM_PROMPT,
-                tools=[
-                    analyze_image,
-                    request_clarification,
-                    fetch_indicative_price,
-                    fetch_disposal_protocol,
-                    find_recyclers,
-                    build_share_summary,
-                ],
-            )
-            # Build the user message from context
-            user_msg = "Analyse the provided e-waste image."
-            if lat and lon:
-                user_msg += f" My location is lat={lat}, lon={lon}."
-            if dealer_offer is not None:
-                user_msg += f" The dealer offered ₹{dealer_offer}."
-            if language != "en":
-                user_msg += f" Respond in language code: {language}."
-
-            # Pass image in the message
-            response = agent([
-                {"role": "user", "content": [
-                    {"image": {"format": fmt, "source": {"bytes": image_bytes}}},
-                    {"text": user_msg},
-                ]}
-            ])
-            # Extract the last tool result that looks like our schema
-            result = _extract_agent_result(response)
-        else:
-            result = _run_direct(_invocation_ctx)
-
-        if MOCK_ANALYSIS:
-            result["mock"] = True
-
-        return _json(200, result)
-
+        if AGENT_MODE and Agent and not MOCK:
+            agent = Agent(model=MODEL_ID, system_prompt=SYSTEM, callback_handler=None,
+                          tools=[analyze_image, request_clarification, price_items, get_safety_messages, find_recyclers, finish])
+            agent("Assess the e-waste photo.")
+        _complete()
+        res = CTX["result"]
+        if MOCK: res["mock"] = True
+        return _json(200, res)
     except Exception as e:
         print("agent error:", repr(e))
         return _json(502, {"error": "analysis failed"})
-
-
-def _extract_agent_result(agent_response) -> dict:
-    """Pull the structured result out of the Strands agent response.
-
-    The agent's final message text may contain a JSON block (if build_share_summary
-    was the last tool call) or we can inspect the tool use history.
-    Fall back to parsing JSON from the response text.
-    """
-    # Try to get the last assistant text and parse JSON from it
-    text = str(agent_response)
-    try:
-        m = re.search(r"\{.*\}", text, re.S)
-        if m:
-            candidate = json.loads(m.group(0))
-            if "type" in candidate:
-                return candidate
-    except (json.JSONDecodeError, AttributeError):
-        pass
-    # If extraction fails, run the direct path as fallback
-    return _run_direct(_invocation_ctx)
-
 `
 
 ### scripts/seed_db.py
@@ -1003,186 +530,115 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 `
 
 ### frontend/src/app/layout.tsx
 `tsx
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 
-const inter = Inter({ subsets: ["latin"] });
-
 export const metadata: Metadata = {
-  title: "KabadiAI - E-Waste Appraisal",
-  description: "Know what your e-waste is, what it's worth, and where it should go.",
+  title: "KabadiAI",
+  description: "For kabadiwalas: know what your e-waste lot is, what it is worth, and where to deliver it safely.",
   manifest: "/manifest.json",
-  icons: {
-    apple: "/icon.png",
-  },
+  icons: { apple: "/icon.png" },
 };
+export const viewport: Viewport = { themeColor: "#047857", width: "device-width", initialScale: 1 };
 
-export const viewport: Viewport = {
-  themeColor: "#0f172a",
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-};
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="hi">
+      <body>
         <LanguageProvider>
-          <div className="min-h-screen max-w-md mx-auto relative overflow-hidden bg-[url('/bg-mesh.svg')] bg-cover bg-center">
-            {children}
-          </div>
+          <div className="min-h-screen max-w-md mx-auto">{children}</div>
         </LanguageProvider>
       </body>
     </html>
   );
 }
-
 `
 
 ### frontend/src/app/page.tsx
 `tsx
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import CameraCapture from "@/components/CameraCapture";
 import ResultDisplay from "@/components/ResultDisplay";
-import { useLanguage } from "@/contexts/LanguageContext";
+import { useLanguage, LANGS } from "@/contexts/LanguageContext";
 
 export default function Home() {
-  const { lang, setLang, t } = useLanguage();
+  const { lang, setLang, t, speak } = useLanguage();
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Record<string, unknown> | null>(null);
-  
-  // Geolocation state
-  const [coords, setCoords] = useState<{lat: number, lon: number} | null>(null);
-  const [dealerOffer, setDealerOffer] = useState<string>("");
+  const [result, setResult] = useState<any>(null);
+  const [offer, setOffer] = useState("");
+  const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
 
   useEffect(() => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        (err) => console.log("Geolocation denied/failed", err),
-        { timeout: 10000, maximumAge: 60000 }
-      );
-    }
+    navigator.geolocation?.getCurrentPosition(
+      (p) => setCoords({ lat: p.coords.latitude, lon: p.coords.longitude }), () => {}, { timeout: 10000, maximumAge: 60000 });
   }, []);
 
-  const handleCapture = async (base64: string, mimeType: string) => {
-    setLoading(true);
-    setResult(null);
-
-    const payload: Record<string, unknown> = {
-      image_b64: base64,
-      media_type: mimeType,
-      language: lang,
-    };
-    if (coords) {
-      payload.lat = coords.lat;
-      payload.lon = coords.lon;
-    }
-    const offerNum = parseFloat(dealerOffer);
-    if (!isNaN(offerNum) && offerNum > 0) {
-      payload.dealer_offer_inr = offerNum;
-    }
-
+  const onCapture = async (b64: string, mime: string) => {
+    setLoading(true); setResult(null);
+    const payload: any = { image_b64: b64, media_type: mime, language: lang };
+    if (coords) { payload.lat = coords.lat; payload.lon = coords.lon; }
+    const n = parseFloat(offer);
+    if (n > 0) payload.dealer_offer_inr = n;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 40000);
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/agent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        throw new Error("API returned " + res.status);
-      }
-      const data = await res.json();
-      setResult(data);
-    } catch (err) {
-      console.error(err);
-      setResult({ type: "clarify", clarify_message: t("scanFailed") });
-    } finally {
-      setLoading(false);
-    }
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: ctrl.signal });
+      if (!res.ok) throw new Error(String(res.status));
+      setResult(await res.json());
+    } catch { setResult({ type: "error" }); }
+    finally { clearTimeout(timer); setLoading(false); }
   };
 
   return (
-    <main className="min-h-screen px-4 py-8 flex flex-col items-center">
-      {/* Header */}
-      <header className="w-full flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 drop-shadow-sm">
-          {t("title")}
-        </h1>
-        <div className="glass px-1 py-1 rounded-full flex gap-1">
-          <button 
-            onClick={() => setLang("en")} 
-            className={`px-3 py-1 text-sm font-semibold rounded-full transition-colors ${lang === "en" ? "bg-emerald-500 text-slate-900" : "text-slate-400 hover:text-slate-200"}`}
-          >
-            EN
-          </button>
-          <button 
-            onClick={() => setLang("hi")} 
-            className={`px-3 py-1 text-sm font-semibold rounded-full transition-colors ${lang === "hi" ? "bg-emerald-500 text-slate-900" : "text-slate-400 hover:text-slate-200"}`}
-          >
-            HI
-          </button>
-        </div>
+    <main className="px-4 pt-4 pb-10 animate-fade-in">
+      <header className="flex items-center justify-between mb-4">
+        <h1 className="text-3xl font-extrabold text-emerald-800">♻ {t("title")}</h1>
+        <button onClick={() => speak(t("help"))} aria-label="Help" className="w-14 h-14 rounded-full bg-amber-400 text-3xl font-black">?</button>
       </header>
 
-      {/* Main Content */}
-      <div className="w-full flex-1 flex flex-col items-center max-w-sm w-full mx-auto">
-        {!result && (
-          <div className="flex flex-col items-center w-full animate-fade-in mt-8">
-            <div className="w-24 h-24 bg-emerald-500/10 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(16,185,129,0.15)]">
-              <svg className="w-12 h-12 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
-              </svg>
-            </div>
-            
-            <p className="text-slate-400 text-center text-sm mb-10 px-4 leading-relaxed">
-              {t("subtitle")}
-            </p>
-
-            <div className="w-full glass-card mb-8">
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                {t("enterOffer")}
-              </label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">₹</span>
-                <input 
-                  type="number" 
-                  value={dealerOffer}
-                  onChange={(e) => setDealerOffer(e.target.value)}
-                  placeholder="0"
-                  className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl py-3 pl-8 pr-4 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 transition-colors"
-                />
-              </div>
-            </div>
-
-            <CameraCapture onCapture={handleCapture} isLoading={loading} />
-          </div>
-        )}
-
-        {result && (
-          <ResultDisplay result={result} onRetake={() => setResult(null)} />
-        )}
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-5" role="radiogroup">
+        {LANGS.map((l) => (
+          <button key={l.code} role="radio" aria-checked={lang === l.code} onClick={() => setLang(l.code)}
+            className={`shrink-0 px-5 rounded-full text-xl font-bold border-2 ${lang === l.code ? "bg-emerald-700 text-white border-emerald-700" : "bg-white text-stone-800 border-stone-300"}`}>
+            {l.label}
+          </button>
+        ))}
       </div>
+
+      {!result ? (
+        <>
+          <div className="flex items-start gap-3 mb-5">
+            <p className="text-xl leading-snug font-medium flex-1">{t("subtitle")}</p>
+            <button onClick={() => speak(t("subtitle"))} aria-label={t("listen")} className="w-14 h-14 rounded-full bg-stone-200 text-2xl shrink-0">🔊</button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center mb-6">
+            {[["📷", "step1"], ["🔍", "step2"], ["₹", "step3"]].map(([icon, k]) => (
+              <div key={k} className="card !p-3"><div className="text-4xl">{icon}</div><div className="font-bold mt-1">{t(k)}</div></div>
+            ))}
+          </div>
+          <CameraCapture onCapture={onCapture} isLoading={loading} />
+          <label className="block mt-7 mb-2 text-lg font-semibold" htmlFor="offer">{t("enterOffer")}</label>
+          <div className="flex items-center gap-2 card !p-3">
+            <span className="text-3xl font-bold">₹</span>
+            <input id="offer" inputMode="numeric" pattern="[0-9]*" value={offer} placeholder="0"
+              onChange={(e) => setOffer(e.target.value.replace(/[^0-9]/g, ""))}
+              className="w-full text-3xl font-bold bg-transparent outline-none" />
+          </div>
+        </>
+      ) : (
+        <ResultDisplay result={result} onRetake={() => setResult(null)} />
+      )}
     </main>
   );
 }
-
 `
 
 ### frontend/src/app/globals.css
@@ -1191,440 +647,307 @@ export default function Home() {
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 240, 244, 248;
-  --background-start-rgb: 15, 23, 42;
-  --background-end-rgb: 2, 6, 23;
-  --primary: 16, 185, 129; /* Emerald 500 */
+body { font-size: 18px; background: #fafaf9; color: #1c1917; -webkit-tap-highlight-color: transparent; }
+button { min-height: 56px; }
+
+@layer components {
+  .card { @apply bg-white rounded-2xl border border-stone-200 shadow-sm p-5; }
+  .btn { @apply w-full rounded-2xl font-bold text-xl min-h-[64px] transition active:scale-[0.98]; }
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-  background-attachment: fixed;
-  font-family: 'Inter', sans-serif;
-  min-height: 100vh;
-}
-
-/* Glassmorphism utilities */
-.glass {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-}
-
-.glass-card {
-  @apply glass rounded-2xl p-6 transition-all duration-300;
-}
-
-.glass-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  transform: translateY(-2px);
-}
-
-/* Gradients */
-.text-gradient {
-  background: linear-gradient(135deg, #34d399, #059669);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Animations */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
-}
-
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
-  50% { box-shadow: 0 0 25px rgba(16, 185, 129, 0.5); }
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s infinite;
-}
-
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fadeIn 0.35s ease-out forwards; }
 `
 
 ### frontend/src/components/CameraCapture.tsx
 `tsx
 "use client";
-
 import React, { useRef, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
-interface CameraCaptureProps {
-  onCapture: (base64: string, mimeType: string) => void;
-  isLoading?: boolean;
-}
-
-export default function CameraCapture({ onCapture, isLoading }: CameraCaptureProps) {
-  const { t } = useLanguage();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export default function CameraCapture({ onCapture, isLoading }: { onCapture: (b64: string, mime: string) => void; isLoading?: boolean }) {
+  const { t, speak } = useLanguage();
+  const ref = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = ""; // lets the same photo be chosen again
     if (!file) return;
-
     setError(null);
-
-    // Client-side resize using canvas
     const img = new Image();
     const url = URL.createObjectURL(file);
-    img.src = url;
-
     img.onload = () => {
       URL.revokeObjectURL(url);
-      
-      let width = img.width;
-      let height = img.height;
-      
-      const MAX_DIMENSION = 1200;
-
-      if (width > height && width > MAX_DIMENSION) {
-        height *= MAX_DIMENSION / width;
-        width = MAX_DIMENSION;
-      } else if (height > MAX_DIMENSION) {
-        width *= MAX_DIMENSION / height;
-        height = MAX_DIMENSION;
-      }
-
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        setError("Could not resize image.");
-        return;
-      }
-
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      // Export as jpeg, 0.8 quality
-      const mimeType = "image/jpeg";
-      const dataUrl = canvas.toDataURL(mimeType, 0.8);
-      
-      // Extract base64 without prefix
-      const base64 = dataUrl.split(",")[1];
-      onCapture(base64, mimeType);
+      const MAX = 1200;
+      let { width, height } = img;
+      if (Math.max(width, height) > MAX) { const r = MAX / Math.max(width, height); width *= r; height *= r; }
+      const c = document.createElement("canvas");
+      c.width = Math.round(width); c.height = Math.round(height);
+      const ctx = c.getContext("2d");
+      if (!ctx) { setError(t("scanFailed")); return; }
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      onCapture(c.toDataURL("image/jpeg", 0.8).split(",")[1], "image/jpeg");
     };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      setError("Failed to load image.");
-    };
+    img.onerror = () => { URL.revokeObjectURL(url); setError(t("scanFailed")); };
+    img.src = url;
   };
 
   return (
-    <div className="flex flex-col items-center gap-4 w-full">
-      <input
-        type="file"
-        accept="image/*"
-        capture="environment"
-        ref={fileInputRef}
-        onChange={handleCapture}
-        className="hidden"
-      />
-      
-      {error && (
-        <div className="text-red-400 bg-red-950/50 px-4 py-2 rounded-lg border border-red-500/30 text-sm">
-          {error}
-        </div>
-      )}
-
+    <div className="w-full">
+      <input ref={ref} type="file" accept="image/*" capture="environment" onChange={handle} className="hidden" />
+      {error && <div className="mb-3 rounded-xl bg-red-100 text-red-800 px-4 py-3 font-semibold">{error}</div>}
       <button
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => { speak(t("takePhoto")); ref.current?.click(); }}
         disabled={isLoading}
-        className={`relative group w-full overflow-hidden rounded-2xl p-[1px] transition-all duration-300 ${
-          isLoading ? "opacity-70 cursor-not-allowed" : "hover:scale-[1.02] active:scale-[0.98]"
-        }`}
+        className="btn bg-emerald-700 text-white flex flex-col items-center justify-center gap-2 py-8 disabled:opacity-60"
       >
-        <span className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl opacity-70 group-hover:opacity-100 transition-opacity animate-pulse-glow" />
-        <div className="relative glass-card flex items-center justify-center py-5 w-full bg-slate-900/90 rounded-2xl">
-          <span className="text-lg font-semibold text-emerald-400 tracking-wide flex items-center gap-2">
-            {isLoading ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                {t("analyzing")}
-              </>
-            ) : (
-              <>
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                </svg>
-                {t("takePhoto")}
-              </>
-            )}
-          </span>
-        </div>
+        <span className="text-6xl" aria-hidden>{isLoading ? "⏳" : "📷"}</span>
+        <span className="text-2xl">{isLoading ? t("analyzing") : t("takePhoto")}</span>
       </button>
     </div>
   );
 }
-
 `
 
 ### frontend/src/components/ResultDisplay.tsx
 `tsx
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-import React, { useRef } from "react";
+import React from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
-interface ResultDisplayProps {
-  result: any;
-  onRetake: () => void;
-}
+const ICON: Record<string, string> = {
+  motherboard: "🧩", ram_stick: "💾", mobile_pcb: "📱", li_ion_battery: "🔋", alkaline_battery: "🪫", copper_wire: "➰",
+  charger_adapter: "🔌", hard_drive: "💽", aluminium_heatsink: "🔩", screen: "🖥️", cfl_or_tube_light: "💡",
+  router_or_modem: "📡", remote: "📺", other: "📦",
+};
 
-export default function ResultDisplay({ result, onRetake }: ResultDisplayProps) {
-  const { t } = useLanguage();
-  const cardRef = useRef<HTMLDivElement>(null);
+export default function ResultDisplay({ result, onRetake }: { result: any; onRetake: () => void }) {
+  const { t, speak } = useLanguage();
+  const name = (c: string) => { const v = t("c_" + c); return v === "c_" + c ? c.replace(/_/g, " ") : v; };
+  const Speak = ({ text }: { text: string }) => (
+    <button onClick={() => speak(text)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-white/90 text-stone-900 text-xl font-bold">🔊 {t("listen")}</button>
+  );
 
-  if (result.type === "clarify") {
+  if (result.type === "clarify" || result.type === "error") {
+    const msg = t(result.type === "error" ? "scanFailed" : "errorLowConfidence");
     return (
-      <div className="glass-card flex flex-col items-center text-center gap-4 animate-fade-in">
-        <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center text-red-400">
-          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-        </div>
-        <p className="text-slate-300 font-medium">{result.clarify_message || t("errorLowConfidence")}</p>
-        <button onClick={onRetake} className="mt-2 px-6 py-2 bg-slate-800 text-slate-200 rounded-full hover:bg-slate-700 transition">
-          {t("retake")}
-        </button>
+      <div className="card flex flex-col items-center text-center gap-4 animate-fade-in">
+        <div className="text-6xl">{result.type === "error" ? "📶" : "📷"}</div>
+        <p className="text-xl font-semibold">{msg}</p>
+        <Speak text={msg} />
+        <button onClick={onRetake} className="btn bg-emerald-700 text-white">{t("retake")}</button>
       </div>
     );
   }
 
-  const handleShare = async () => {
-    if (!navigator.share) {
-      alert("Sharing not supported on this browser.");
-      return;
-    }
-    try {
-      let text = `KabadiAI Appraisal:\nValue: ₹${result.total_min_inr} - ₹${result.total_max_inr}\nItems: ${result.line_items.map((i:any)=>i.component).join(', ')}\n`;
-      if (result.hazard_messages?.length > 0) text += `Hazards Present!\n`;
-      text += `\n${t("disclaimer")}`;
+  const lo = Math.round(result.total_min_inr || 0), hi = Math.round(result.total_max_inr || 0);
+  const codes: string[] = (result.hazard_messages || []).map((h: any) => h.hazard_code);
+  const hazardTexts = (result.hazard_messages || []).map((h: any) => { const v = t("h_" + h.hazard_code); return v === "h_" + h.hazard_code ? h.message : v; });
+  const hazardSpeech = [...hazardTexts, codes.length ? t("g_general") : ""].filter(Boolean).join(" ");
+  const summary = `${t("indicativeValue")}: ₹${lo} ${t("to")} ₹${hi}.`;
+  const V: Record<string, [string, string, string]> = {
+    low: ["verdictLow", "bg-red-700", "😟"], fair: ["verdictFair", "bg-emerald-700", "🙂"], high: ["verdictHigh", "bg-sky-700", "🤔"] };
 
-      await navigator.share({
-        title: 'KabadiAI E-Waste Report',
-        text: text,
-      });
-    } catch (err) {
-      console.error("Error sharing:", err);
-    }
+  const shareText = [`KabadiAI: ${summary}`,
+    ...(result.line_items || []).map((i: any) => `${name(i.component)} x${i.count}: ~${i.est_weight_g} g`),
+    ...hazardTexts.map((h: string) => "⚠ " + h), t("disclaimer")].join("\n");
+  const share = async () => {
+    try { if (navigator.share) { await navigator.share({ title: "KabadiAI", text: shareText }); return; } }
+    catch (e: any) { if (e?.name === "AbortError") return; }
+    window.open("https://wa.me/?text=" + encodeURIComponent(shareText), "_blank");
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full animate-fade-in pb-8">
-      {/* Hazard Banner */}
-      {result.hazard_messages && result.hazard_messages.length > 0 && (
-        <div className="bg-red-950/80 border border-red-500/50 rounded-2xl p-4 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
-          <h3 className="text-red-400 font-bold flex items-center gap-2 mb-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            {t("hazardsDetected")}
-          </h3>
-          <ul className="list-disc list-inside text-red-200 text-sm space-y-1">
-            {result.hazard_messages.map((hm: any, idx: number) => (
-              <li key={idx}>{hm.message}</li>
-            ))}
-          </ul>
+    <div className="flex flex-col gap-5 pb-8 animate-fade-in">
+      {result.mock && <div className="rounded-xl bg-amber-300 text-stone-900 p-3 text-center font-extrabold">{t("mockBanner")}</div>}
+
+      {codes.length > 0 && (
+        <div className="rounded-2xl bg-red-700 text-white p-5">
+          <h3 className="text-2xl font-extrabold mb-2">⚠ {t("hazardsDetected")}</h3>
+          <ul className="space-y-2 text-xl">{hazardTexts.map((h: string, i: number) => <li key={i}>• {h}</li>)}</ul>
+          <p className="mt-3 text-lg opacity-95">{t("g_general")}</p>
+          <div className="mt-4"><Speak text={hazardSpeech} /></div>
         </div>
       )}
 
-      {/* Main Value Card */}
-      <div ref={cardRef} className="glass-card relative overflow-hidden bg-slate-900/80">
-        <div className="absolute top-0 right-0 p-4 opacity-10">
-          <svg className="w-24 h-24 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-        </div>
-        
-        <h2 className="text-slate-400 text-sm font-medium uppercase tracking-wider mb-1">{t("indicativeValue")}</h2>
-        <div className="text-4xl font-black text-gradient mb-4">
-          ₹{result.total_min_inr} - ₹{result.total_max_inr}
-        </div>
+      <div className="card">
+        <div className="text-stone-500 font-semibold">{t("indicativeValue")}</div>
+        <div className="text-5xl font-black text-emerald-800 my-2">₹{lo}–{hi}</div>
+        <button onClick={() => speak(summary)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-stone-200 text-xl font-bold">🔊 {t("listen")}</button>
+      </div>
 
-        {result.verdict && (
-          <div className="inline-block px-3 py-1 bg-slate-800 rounded-lg text-sm font-medium text-emerald-400 mb-6 border border-emerald-500/20">
-            {result.verdict === "low" ? t("verdictLow") : result.verdict === "high" ? t("verdictHigh") : t("verdictFair")}
-          </div>
-        )}
+      {result.verdict && V[result.verdict] && (
+        <div className={`rounded-2xl text-white p-5 flex items-center gap-4 ${V[result.verdict][1]}`}>
+          <span className="text-5xl">{V[result.verdict][2]}</span>
+          <p className="text-xl font-bold flex-1">{t(V[result.verdict][0])}</p>
+          <button onClick={() => speak(t(V[result.verdict][0]))} aria-label={t("listen")} className="w-14 h-14 rounded-full bg-white/90 text-2xl">🔊</button>
+        </div>
+      )}
 
-        <div className="border-t border-slate-700/50 pt-4 mt-2">
-          <h3 className="text-slate-300 font-semibold mb-3 text-sm uppercase tracking-wide">{t("itemsFound")}</h3>
-          <div className="space-y-3">
-            {result.line_items?.map((item: any, i: number) => (
-              <div key={i} className="flex justify-between items-center text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-slate-600"></span>
-                  <span className="text-slate-200 capitalize">{item.component.replace(/_/g, ' ')}</span>
-                  <span className="text-slate-500">x{item.count}</span>
-                </div>
-                <div className="text-slate-400 font-mono">
-                  ₹{item.min_inr}-{item.max_inr}
-                </div>
+      <div className="card">
+        <h3 className="font-bold text-lg mb-3">{t("itemsFound")}</h3>
+        <div className="space-y-3">
+          {(result.line_items || []).map((it: any, i: number) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-4xl w-12 text-center">{ICON[it.component] || "📦"}</span>
+              <div className="flex-1">
+                <div className="text-lg font-semibold">{name(it.component)} <span className="text-stone-500 font-normal">x{it.count}</span></div>
+                <div className="text-stone-500 text-sm">~{it.est_weight_g} g</div>
               </div>
-            ))}
-          </div>
+              <div className="text-lg font-bold">{it.hazardous ? "⚠" : `₹${Math.round(it.min_inr)}–${Math.round(it.max_inr)}`}</div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Action Buttons */}
       <div className="flex gap-3">
-        <button onClick={handleShare} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-4 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all flex justify-center items-center gap-2">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
-          {t("shareWhatsApp")}
-        </button>
-        <button onClick={onRetake} className="bg-slate-800 text-slate-300 hover:bg-slate-700 py-3 px-6 rounded-xl font-medium transition-colors">
-          {t("retake")}
-        </button>
+        <button onClick={share} className="btn bg-green-600 text-white flex-1">💬 {t("shareWhatsApp")}</button>
+        <button onClick={onRetake} className="btn bg-stone-800 text-white !w-auto px-6">📷</button>
       </div>
 
-      {/* Recyclers List */}
-      {result.recyclers && result.recyclers.length > 0 && (
-        <div className="mt-4">
-          <h3 className="text-slate-300 font-semibold mb-4 flex items-center gap-2">
-            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-            {t("nearestRecyclers")}
-          </h3>
+      {result.recyclers?.length > 0 && (
+        <div>
+          <h3 className="font-bold text-lg mb-3">📍 {t("nearestRecyclers")}</h3>
           <div className="space-y-3">
             {result.recyclers.map((r: any) => (
-              <a key={r.id} href={r.directions_url} target="_blank" rel="noopener noreferrer" className="block glass-card !p-4 hover:border-blue-500/30 group">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-slate-200 font-medium group-hover:text-blue-400 transition-colors">{r.name}</h4>
-                    <p className="text-slate-500 text-xs mt-1 leading-relaxed">{r.address}</p>
-                  </div>
-                  <div className="text-right shrink-0 ml-4">
-                    <div className="text-blue-400 font-bold">{r.distance_km}</div>
-                    <div className="text-slate-500 text-[10px] uppercase tracking-wider">{t("kmAway")}</div>
-                  </div>
-                </div>
+              <a key={r.id} href={r.directions_url} target="_blank" rel="noopener noreferrer" className="card !p-4 flex items-center gap-3 block">
+                <div className="flex-1"><div className="font-bold text-lg">{r.name}</div><div className="text-stone-500 text-sm">{r.address}</div></div>
+                <div className="text-right"><div className="text-2xl font-black text-sky-700">{r.distance_km}</div><div className="text-xs text-stone-500">{t("kmAway")}</div></div>
               </a>
             ))}
           </div>
         </div>
       )}
-      
-      <p className="text-xs text-slate-600 text-center mt-4 pb-8 max-w-[280px] mx-auto">
-        {t("disclaimer")}
-      </p>
+      <p className="text-xs text-stone-500 text-center">{t("disclaimer")}</p>
     </div>
   );
 }
-
 `
 
 ### frontend/src/contexts/LanguageContext.tsx
 `tsx
 "use client";
+import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import en from "@/locales/en.json";
+import hi from "@/locales/hi.json";
 
-import React, { createContext, useContext, useState, ReactNode } from "react";
-import strings from "@/locales/strings.json";
+type Dict = Record<string, string>;
+// To add a language: put its REVIEWED file in /locales, import it here, add it to DICTS and LANGS.
+const DICTS: Record<string, Dict> = { en, hi };
+export const LANGS = [
+  { code: "hi", label: "हिन्दी", tts: "hi-IN" },
+  { code: "en", label: "English", tts: "en-IN" },
+];
 
-type Language = "en" | "hi";
-
-interface LanguageContextType {
-  lang: Language;
-  setLang: (lang: Language) => void;
-  t: (key: keyof typeof strings.en) => string;
-}
-
-const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
+interface Ctx { lang: string; setLang: (l: string) => void; t: (k: string) => string; speak: (text: string) => void }
+const LanguageContext = createContext<Ctx | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState<Language>("en");
-
-  const t = (key: keyof typeof strings.en): string => {
-    return strings[lang][key] || strings.en[key] || key;
+  const [lang, setLangState] = useState("hi");
+  useEffect(() => {
+    try { const s = localStorage.getItem("lang"); if (s && DICTS[s]) setLangState(s); } catch {}
+  }, []);
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);
+  const setLang = (l: string) => { setLangState(l); try { localStorage.setItem("lang", l); } catch {} };
+  const t = (k: string) => DICTS[lang]?.[k] ?? DICTS.hi[k] ?? DICTS.en[k] ?? k;
+  const speak = (text: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window) || !text) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = LANGS.find((x) => x.code === lang)?.tts ?? "hi-IN";
+    u.rate = 0.9;
+    window.speechSynthesis.speak(u);
   };
-
-  return (
-    <LanguageContext.Provider value={{ lang, setLang, t }}>
-      {children}
-    </LanguageContext.Provider>
-  );
+  return <LanguageContext.Provider value={{ lang, setLang, t, speak }}>{children}</LanguageContext.Provider>;
 }
 
 export function useLanguage() {
-  const context = useContext(LanguageContext);
-  if (context === undefined) {
-    throw new Error("useLanguage must be used within a LanguageProvider");
-  }
-  return context;
+  const c = useContext(LanguageContext);
+  if (!c) throw new Error("useLanguage must be used within a LanguageProvider");
+  return c;
 }
-
 `
 
-### frontend/src/locales/strings.json
+### frontend/src/locales/en.json
 `json
 {
-  "en": {
-    "title": "KabadiAI",
-    "subtitle": "Know what your e-waste is, what it's worth, and where it should go.",
-    "takePhoto": "Take Photo",
-    "uploadImage": "Upload Image",
-    "analyzing": "Analyzing your e-waste...",
-    "retake": "Retake",
-    "dealerOffer": "Dealer Offer (₹)",
-    "enterOffer": "Did a kabadiwala make an offer? (Optional)",
-    "verdictLow": "Low Offer",
-    "verdictFair": "Fair Price",
-    "verdictHigh": "Great Deal",
-    "indicativeValue": "Indicative Scrap Value",
-    "itemsFound": "Items Found",
-    "hazardsDetected": "Hazards Detected!",
-    "nearestRecyclers": "Nearest Authorized Recyclers",
-    "getDirections": "Get Directions",
-    "shareWhatsApp": "Share with Dealer on WhatsApp",
-    "disclaimer": "Indicative only. Prices vary by condition, market, and date. Data covers Delhi-NCR authorized recyclers only (DPCC/CPCB 2023). Verify before acting.",
-    "errorLowConfidence": "The photo is too blurry or dark. Please take a clearer photo.",
-    "scanFailed": "Analysis failed. Please try again.",
-    "kmAway": "km away"
-  },
-  "hi": {
-    "title": "कबाड़ीAI (KabadiAI)",
-    "subtitle": "जानें आपका ई-कचरा क्या है, उसकी कीमत क्या है, और उसे कहाँ जाना चाहिए।",
-    "takePhoto": "फोटो लें",
-    "uploadImage": "इमेज अपलोड करें",
-    "analyzing": "आपका ई-कचरा स्कैन हो रहा है...",
-    "retake": "फिर से फोटो लें",
-    "dealerOffer": "कबाड़ी वाले का ऑफर (₹)",
-    "enterOffer": "क्या कबाड़ी वाले ने कोई कीमत बताई? (वैकल्पिक)",
-    "verdictLow": "ऑफर कम है",
-    "verdictFair": "सही कीमत है",
-    "verdictHigh": "शानदार डील",
-    "indicativeValue": "अनुमानित कबाड़ मूल्य",
-    "itemsFound": "सामान मिला",
-    "hazardsDetected": "खतरा (Hazards)!",
-    "nearestRecyclers": "निकटतम अधिकृत रीसायकलर",
-    "getDirections": "रास्ता देखें",
-    "shareWhatsApp": "कबाड़ी वाले को WhatsApp पर भेजें",
-    "disclaimer": "केवल अनुमानित कीमत। स्थिति, बाजार और तारीख के अनुसार कीमतें बदल सकती हैं। डेटा केवल दिल्ली-NCR के अधिकृत रीसायकलर्स (DPCC/CPCB 2023) का है।",
-    "errorLowConfidence": "फोटो बहुत धुंधली या अंधेरे में है। कृपया एक साफ फोटो लें।",
-    "scanFailed": "स्कैन विफल रहा। कृपया पुनः प्रयास करें।",
-    "kmAway": "किमी दूर"
-  }
+  "title": "KabadiAI",
+  "subtitle": "Take a photo of your lot. See the price, any danger, and where to deliver it.",
+  "step1": "Photo", "step2": "Check", "step3": "Price",
+  "help": "Tap the big green button and take a photo of your lot. Then you will see the price, any danger, and where to deliver. Tap the speaker to listen.",
+  "takePhoto": "Take photo of lot",
+  "analyzing": "Checking your lot...",
+  "retake": "New photo",
+  "enterOffer": "Buyer's offer for this lot (₹)",
+  "verdictLow": "Offer is below the expected range. Ask for more.",
+  "verdictFair": "Offer is within the expected range.",
+  "verdictHigh": "Offer is above the expected range. Double-check the weight.",
+  "indicativeValue": "Indicative scrap value",
+  "itemsFound": "Items found",
+  "hazardsDetected": "Danger! Keep these separate",
+  "g_general": "Never burn circuit boards or use acid to extract metal.",
+  "h_swollen_battery": "DANGER: swollen lithium battery. Do not burn, puncture or crush.",
+  "h_leaking_battery": "Leaking battery. Do not touch with bare hands. Keep it separate.",
+  "h_mercury_lamp": "Contains mercury. Do not break the tube or bulb.",
+  "h_crt_or_lead_glass": "Hazardous: lead glass. Do not break open.",
+  "nearestRecyclers": "Deliver to an authorized recycler",
+  "shareWhatsApp": "Send on WhatsApp",
+  "listen": "Listen",
+  "to": "to",
+  "rupees": "rupees",
+  "mockBanner": "TEST DATA: this is not a real analysis",
+  "disclaimer": "Indicative only, not an official valuation. Weights are estimated from the photo. Recycler data covers Delhi-NCR only (DPCC/CPCB list, 2023).",
+  "errorLowConfidence": "The photo is too blurry or dark. Take a closer, clearer photo.",
+  "scanFailed": "Check failed. Please try again.",
+  "kmAway": "km",
+  "c_motherboard": "Motherboard", "c_ram_stick": "RAM stick", "c_mobile_pcb": "Mobile board",
+  "c_li_ion_battery": "Lithium battery", "c_alkaline_battery": "AA/AAA cells", "c_copper_wire": "Copper wire",
+  "c_charger_adapter": "Charger/adapter", "c_hard_drive": "Hard drive", "c_aluminium_heatsink": "Aluminium heatsink",
+  "c_screen": "Screen", "c_cfl_or_tube_light": "CFL/tube light", "c_router_or_modem": "Router/modem",
+  "c_remote": "Remote", "c_other": "Other"
 }
+`
 
+### frontend/src/locales/hi.json
+`json
+{
+  "title": "कबाड़ी AI",
+  "subtitle": "अपने माल की फोटो लें। दाम, खतरा और माल कहाँ पहुँचाना है, सब देखें।",
+  "step1": "फोटो", "step2": "जाँच", "step3": "दाम",
+  "help": "बड़े हरे बटन को दबाकर अपने माल की फोटो लें। फिर आपको दाम, खतरा और माल कहाँ पहुँचाना है, यह दिखेगा। सुनने के लिए स्पीकर दबाएं।",
+  "takePhoto": "माल की फोटो लें",
+  "analyzing": "आपका माल जाँचा जा रहा है...",
+  "retake": "नई फोटो",
+  "enterOffer": "खरीदार ने इस माल का कितना दाम बताया (₹)",
+  "verdictLow": "ऑफर अनुमानित दाम से कम है। ज़्यादा माँगें।",
+  "verdictFair": "ऑफर अनुमानित दाम के अंदर है।",
+  "verdictHigh": "ऑफर अनुमानित दाम से ऊपर है। वज़न दोबारा जाँच लें।",
+  "indicativeValue": "अनुमानित कबाड़ कीमत",
+  "itemsFound": "मिला हुआ सामान",
+  "hazardsDetected": "खतरा! इन्हें अलग रखें",
+  "g_general": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।",
+  "h_swollen_battery": "खतरा: फूली हुई लिथियम बैटरी। इसे जलाएं नहीं, छेदें नहीं, दबाएं नहीं।",
+  "h_leaking_battery": "बैटरी से तरल निकल रहा है। नंगे हाथ से न छुएं। इसे अलग रखें।",
+  "h_mercury_lamp": "इसमें पारा (मरकरी) है। ट्यूब या बल्ब न तोड़ें।",
+  "h_crt_or_lead_glass": "खतरनाक: इसमें सीसे का कांच है। इसे न तोड़ें।",
+  "nearestRecyclers": "अधिकृत रीसायकलर तक पहुँचाएँ",
+  "shareWhatsApp": "WhatsApp पर भेजें",
+  "listen": "सुनें",
+  "to": "से",
+  "rupees": "रुपये",
+  "mockBanner": "टेस्ट डेटा: यह असली जाँच नहीं है",
+  "disclaimer": "केवल अनुमान, सरकारी मूल्यांकन नहीं। वज़न फोटो से अंदाज़े से लगाया गया है। रीसायकलर की जानकारी सिर्फ़ दिल्ली-NCR की है (DPCC/CPCB सूची, 2023)।",
+  "errorLowConfidence": "फोटो बहुत धुंधली या अंधेरी है। पास से साफ़ फोटो लें।",
+  "scanFailed": "जाँच नहीं हो पाई। कृपया दोबारा कोशिश करें।",
+  "kmAway": "किमी",
+  "c_motherboard": "मदरबोर्ड", "c_ram_stick": "रैम", "c_mobile_pcb": "मोबाइल बोर्ड",
+  "c_li_ion_battery": "लिथियम बैटरी", "c_alkaline_battery": "AA/AAA सेल", "c_copper_wire": "तांबे का तार",
+  "c_charger_adapter": "चार्जर/अडैप्टर", "c_hard_drive": "हार्ड ड्राइव", "c_aluminium_heatsink": "एल्युमिनियम हीटसिंक",
+  "c_screen": "स्क्रीन", "c_cfl_or_tube_light": "CFL/ट्यूब लाइट", "c_router_or_modem": "राउटर/मॉडेम",
+  "c_remote": "रिमोट", "c_other": "अन्य"
+}
 `
 
 ### frontend/tailwind.config.ts
@@ -1648,7 +971,25 @@ const config: Config = {
   plugins: [],
 };
 export default config;
+`
 
+### scripts/translate_locales.py
+`python
+"""Draft UI translations of en.json with Amazon Translate -> locales/<code>.draft.json
+Safety text (h_*, g_*) is never machine-translated: write it with a native speaker.
+Usage: python scripts/translate_locales.py pa bn ta te mr"""
+import json, pathlib, sys
+import boto3
+
+ROOT = pathlib.Path(__file__).parent.parent / "frontend" / "src" / "locales"
+en = json.loads((ROOT / "en.json").read_text(encoding="utf-8"))
+tr = boto3.client("translate", region_name="us-east-1")
+for code in sys.argv[1:]:
+    out = {k: tr.translate_text(Text=v, SourceLanguageCode="en", TargetLanguageCode=code)["TranslatedText"]
+           for k, v in en.items() if not k.startswith(("h_", "g_"))}
+    out["_status"] = "DRAFT machine translation. Native speaker must review. Add h_* and g_* safety text by hand."
+    (ROOT / f"{code}.draft.json").write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("wrote", code)
 `
 
 ### src/price/app.py
@@ -1826,7 +1167,6 @@ def handler(event, context):
         result["verdict"] = verdict(dealer_offer, total_min, total_max)
 
     return _json(200, result)
-
 `
 
 ### src/recyclers/app.py
@@ -1935,7 +1275,6 @@ def handler(event, context):
 
     result = nearest(lat, lon, all_recyclers)
     return _json(200, {"recyclers": result, "coverage_note": COVERAGE_NOTE})
-
 `
 
 ### data/prices.json
@@ -1956,7 +1295,6 @@ def handler(event, context):
   {"component": "remote",            "min_inr_per_kg":  10, "max_inr_per_kg":  40, "source": "unverified placeholder", "checked_date": "2026-10-08"},
   {"component": "other",             "min_inr_per_kg":   0, "max_inr_per_kg":  10, "source": "fallback", "checked_date": "2026-10-08"}
 ]
-
 `
 
 ### data/recyclers.json
@@ -2013,5 +1351,5 @@ def handler(event, context):
     "checked_date": "2026-10-08"
   }
 ]
-
 `
+
