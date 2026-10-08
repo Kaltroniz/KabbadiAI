@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: KabadiAI backend (Day 1 - scan pipeline)
+
+Parameters:
+  BedrockModelId:
+    Type: String
+    Default: us.amazon.nova-2-lite-v1:0
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 60
+    MemorySize: 512
+
+Resources:
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: [POST, GET, OPTIONS]
+        AllowHeaders: [content-type]
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
+
+  ScanFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/scan/
+      Handler: app.handler
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource: '*'
+      Events:
+        Scan:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /scan
+            Method: POST
+
+Outputs:
+  ApiUrl:
+    Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com
