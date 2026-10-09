@@ -40,8 +40,8 @@ HAZARD_MESSAGES["lead_acid_battery"] = {"en": "Lead-acid battery: contains acid 
     "hi": "लेड-एसिड बैटरी: इसमें तेज़ाब और सीसा है। इसे सीधा रखें। खोलें नहीं, जलाएं नहीं, तेज़ाब न निकालें।"}
 HAZARD_MESSAGES["refrigerant_gas"] = {"en": "Contains refrigerant gas. Do not cut or break the pipes or compressor.",
     "hi": "इसमें रेफ्रिजरेंट गैस है। पाइप या कंप्रेसर को न काटें और न तोड़ें।"}
-GENERAL = {"en": "Never burn circuit boards or use acid to extract metal.",
-           "hi": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।"}
+GENERAL = {"en": "WARNING: AI photo analysis cannot detect hidden hazards. If unsure, treat all e-waste as hazardous. Never burn or crush it.",
+           "hi": "चेतावनी: AI फोटो विश्लेषण छिपे हुए खतरों का पता नहीं लगा सकता। यदि अनिश्चित हैं, तो सभी ई-कचरे को खतरनाक मानें। इसे कभी न जलाएं या कुचलें।"}
 
 PROMPT = f"""You assess photographed discarded electronics in India. Return ONLY one JSON object:
 {{"items":[{{"component":<one of {sorted(COMPONENTS)}>,"condition":<one of {sorted(CONDITIONS)}>,"count":<int>,"est_weight_g":<int, TOTAL weight of all units in this line>}}],
@@ -52,7 +52,7 @@ For whole devices (laptop, desktop_cpu, mobile_phone, hard_drive, power_supply, 
 MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "count": 1, "est_weight_g": 320},
                        {"component": "copper_wire", "condition": "intact", "count": 3, "est_weight_g": 270},
                        {"component": "li_ion_battery", "condition": "swollen", "count": 1, "est_weight_g": 150}],
-             "hazards": [], "confidence": 85, "notes": "MOCK DATA, Bedrock not called."}
+             "hazards": ["swollen_battery"], "confidence": 85, "notes": "MOCK DATA, Bedrock not called."}
 
 _ddb = None
 def _table(name):
@@ -302,4 +302,6 @@ def handler(event, context):
         return _json(200, res)
     except Exception as e:
         print("agent error:", repr(e))
+        if "timeout" in str(e).lower() or "read operation timed out" in str(e).lower():
+            return _json(504, {"error": "analysis timed out due to high load, please try again"})
         return _json(502, {"error": "analysis failed"})

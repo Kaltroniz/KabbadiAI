@@ -43,11 +43,7 @@ from boto3.dynamodb.conditions import Key
 from decimal import Decimal
 
 PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
-COMPONENTS = {
-    "motherboard", "ram_stick", "mobile_pcb", "li_ion_battery", "alkaline_battery",
-    "copper_wire", "charger_adapter", "hard_drive", "aluminium_heatsink",
-    "screen", "cfl_or_tube_light", "router_or_modem", "remote", "other",
-}
+COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_scrap", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "lead_acid_battery", "li_ion_battery", "microwave", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "refrigerator", "remote", "router_or_modem", "split_ac", "ups_unit", "washing_machine", "window_ac"}
 # Components with indicative 0/0 price that we treat as hazardous (no cash value)
 HAZARDOUS = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
 
@@ -58,13 +54,11 @@ DISCLAIMER = (
 
 _ddb = None
 
-
 def _table():
     global _ddb
     if _ddb is None:
         _ddb = boto3.resource("dynamodb").Table(PRICES_TABLE)
     return _ddb
-
 
 def _get_price(component):
     """Fetch one price row from DynamoDB.  Returns a dict or raises."""
@@ -73,24 +67,17 @@ def _get_price(component):
     if not item:
         # Fall back to 'other' if component missing from table
         resp = _table().get_item(Key={"component": "other"})
-        item = resp.get("Item", {"component": "other", "min_inr_per_kg": 0,
-                                  "max_inr_per_kg": 10, "source": "fallback",
+        item = resp.get("Item", {"component": "other", "basis": "per_kg", "min_inr": 0,
+                                  "max_inr": 10, "source": "fallback",
                                   "checked_date": "unknown"})
     return item
-
 
 def _json(status, body):
     return {"statusCode": status, "headers": {"content-type": "application/json"},
             "body": json.dumps(body)}
 
-
 def calculate_price(items, price_fetcher):
-    """Pure calculation – separated from AWS I/O for unit-testability.
-
-    price_fetcher(component) -> {"min_inr_per_kg": N, "max_inr_per_kg": N,
-                                  "source": "...", "checked_date": "..."}
-    Returns (line_items, total_min, total_max, source_note, checked_date).
-    """
+    """Pure calculation – separated from AWS I/O for unit-testability."""
     line_items = []
     total_min = 0.0
     total_max = 0.0
@@ -106,13 +93,24 @@ def calculate_price(items, price_fetcher):
         weight_kg = weight_g / 1000.0
 
         row = price_fetcher(component)
-        min_per_kg = float(row.get("min_inr_per_kg", 0))
-        max_per_kg = float(row.get("max_inr_per_kg", 0))
+        basis = str(row.get("basis", "none"))
+        min_inr = float(row.get("min_inr", 0))
+        max_inr = float(row.get("max_inr", 0))
+        
         source_note = str(row.get("source", ""))
         checked_date = str(row.get("checked_date", ""))
 
-        item_min = 0.0 if component in HAZARDOUS else round(min_per_kg * weight_kg, 2)
-        item_max = 0.0 if component in HAZARDOUS else round(max_per_kg * weight_kg, 2)
+        if component in HAZARDOUS or basis not in ("per_kg", "per_piece"):
+            item_min = item_max = 0.0
+        elif basis == "per_piece":
+            item_min = min_inr * count
+            item_max = max_inr * count
+        else:
+            item_min = min_inr * weight_kg
+            item_max = max_inr * weight_kg
+            
+        item_min = round(item_min, 2)
+        item_max = round(item_max, 2)
 
         total_min += item_min
         total_max += item_max
@@ -124,6 +122,7 @@ def calculate_price(items, price_fetcher):
             "min_inr":    item_min,
             "max_inr":    item_max,
             "hazardous":  component in HAZARDOUS,
+            "basis": basis
         })
 
     return line_items, round(total_min, 2), round(total_max, 2), source_note, checked_date

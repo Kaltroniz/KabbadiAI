@@ -99,5 +99,7 @@ def handler(event, context):
             continue  # one retry on unparseable model output
         except Exception as e:
             print("model error:", repr(e))
+            if "timeout" in str(e).lower() or "read operation timed out" in str(e).lower():
+                return _json(504, {"error": "analysis timed out due to high load, please try again"})
             return _json(502, {"error": "analysis failed"})
     return _json(502, {"error": "model returned invalid output"})
