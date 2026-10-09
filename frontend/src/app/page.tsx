@@ -38,7 +38,10 @@ export default function Home() {
     <main className="px-4 pt-4 pb-10 animate-fade-in">
       <header className="flex items-center justify-between mb-4">
         <h1 className="text-3xl font-extrabold text-emerald-800">♻ {t("title")}</h1>
-        <button onClick={() => speak(t("help"))} aria-label="Help" className="w-14 h-14 rounded-full bg-amber-400 text-3xl font-black">?</button>
+        <div className="flex items-center gap-2">
+          <a href="/insights" className="px-4 py-2 bg-stone-200 rounded-xl font-bold">Insights</a>
+          <button onClick={() => speak(t("help"))} aria-label="Help" className="w-14 h-14 rounded-full bg-amber-400 text-3xl font-black">?</button>
+        </div>
       </header>
 
       <div className="flex gap-2 overflow-x-auto pb-2 mb-5" role="radiogroup">
