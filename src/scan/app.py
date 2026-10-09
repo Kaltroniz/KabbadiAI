@@ -1,7 +1,7 @@
 import base64, json, os, re
 import boto3
 
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0")
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-2-lite-v1:0")
 MOCK_ANALYSIS = os.environ.get("MOCK_ANALYSIS", "0") == "1"
 
 # Fixed sample returned in mock mode.  Never use in a real demo or accuracy test.

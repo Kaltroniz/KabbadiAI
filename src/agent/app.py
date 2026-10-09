@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import boto3
 
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-2-lite-v1:0")
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-2-lite-v1:0")
 MOCK = os.environ.get("MOCK_ANALYSIS", "0") == "1"
 AGENT_MODE = os.environ.get("AGENT_MODE", "0") == "1"
 PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
@@ -16,7 +16,7 @@ RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
 LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
 PROVIDER_ORDER = [x.strip() for x in os.environ.get("PROVIDER_ORDER", "gemini,bedrock").split(",") if x.strip()]
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")  # confirm the exact id in Google AI Studio
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")  # confirm the exact id in Google AI Studio
 MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
 COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_scrap", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "lead_acid_battery", "li_ion_battery", "microwave", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "refrigerator", "remote", "router_or_modem", "split_ac", "ups_unit", "washing_machine", "window_ac"}

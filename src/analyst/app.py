@@ -5,7 +5,7 @@ import json, os, urllib.request
 import boto3
 
 TABLE, KEY = os.environ.get("LOTS_TABLE", ""), os.environ.get("GEMINI_API_KEY", "")
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 MAX_ROUNDS = 4
 _t = None
 
