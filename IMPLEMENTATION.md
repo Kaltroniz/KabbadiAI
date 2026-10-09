@@ -222,9 +222,9 @@ RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
 LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
 MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
-COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "li_ion_battery", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "remote", "router_or_modem"}
+COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_scrap", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "lead_acid_battery", "li_ion_battery", "microwave", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "refrigerator", "remote", "router_or_modem", "split_ac", "ups_unit", "washing_machine", "window_ac"}
 CONDITIONS = {"intact", "corroded", "swollen", "leaking", "broken", "unknown"}
-HAZARDS = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass"}
+HAZARDS = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass", "lead_acid_battery", "refrigerant_gas"}
 NO_VALUE = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
 DISCLAIMER = "Indicative only, not an official valuation. Recycler data covers Delhi-NCR only (DPCC/CPCB list, 2023)."
 
@@ -239,6 +239,10 @@ HAZARD_MESSAGES = {
     "crt_or_lead_glass": {"en": "Hazardous: lead glass. Do not break open.",
                           "hi": "खतरनाक: इसमें सीसे का कांच है। इसे न तोड़ें।"},
 }
+HAZARD_MESSAGES["lead_acid_battery"] = {"en": "Lead-acid battery: contains acid and lead. Keep it upright. Do not open, burn or drain it.",
+    "hi": "लेड-एसिड बैटरी: इसमें तेज़ाब और सीसा है। इसे सीधा रखें। खोलें नहीं, जलाएं नहीं, तेज़ाब न निकालें।"}
+HAZARD_MESSAGES["refrigerant_gas"] = {"en": "Contains refrigerant gas. Do not cut or break the pipes or compressor.",
+    "hi": "इसमें रेफ्रिजरेंट गैस है। पाइप या कंप्रेसर को न काटें और न तोड़ें।"}
 GENERAL = {"en": "Never burn circuit boards or use acid to extract metal.",
            "hi": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।"}
 
@@ -246,7 +250,7 @@ PROMPT = f"""You assess photographed discarded electronics in India. Return ONLY
 {{"items":[{{"component":<one of {sorted(COMPONENTS)}>,"condition":<one of {sorted(CONDITIONS)}>,"count":<int>,"est_weight_g":<int, TOTAL weight of all units in this line>}}],
  "hazards":[<subset of {sorted(HAZARDS)}>],"confidence":<0-100>,"notes":"<short>"}}
 List only what is visible. Lower confidence if blurry, dark or hidden. Flag swollen_battery only if a battery visibly bulges.
-For whole devices (laptop, desktop_cpu, mobile_phone, hard_drive, power_supply, crt_monitor_or_tv, lcd_led_monitor_or_tv) set count to the number of devices."""
+For whole devices (laptop, desktop_cpu, mobile_phone, hard_drive, power_supply, crt_monitor_or_tv, lcd_led_monitor_or_tv, ups_unit, split_ac, window_ac, refrigerator, washing_machine, microwave) set count to the number of devices."""
 
 MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "count": 1, "est_weight_g": 320},
                        {"component": "copper_wire", "condition": "intact", "count": 3, "est_weight_g": 270},
@@ -302,6 +306,8 @@ def _hazards(scan):  # model flags plus rules, so a swollen battery is never mis
         if k == "leaking" and c in ("li_ion_battery", "alkaline_battery"): h.add("leaking_battery")
         if c == "cfl_or_tube_light": h.add("mercury_lamp")
         if c == "crt_monitor_or_tv": h.add("crt_or_lead_glass")
+        if c in ("lead_acid_battery", "ups_unit"): h.add("lead_acid_battery")
+        if c in ("split_ac", "window_ac", "refrigerator"): h.add("refrigerant_gas")
     return sorted(h & HAZARDS)
 
 CTX = {}
@@ -529,7 +535,7 @@ def seed_table(table, items, key_attr, dry_run):
                 print("  DRY-RUN would write:", json.dumps(item))
             else:
                 batch.put_item(Item=dynamo_item)
-                print(f"  ✓ {item[key_attr]}")
+                print(f"  OK {item[key_attr]}")
 
 
 def main():
@@ -752,7 +758,8 @@ const ICON: Record<string, string> = {
   motherboard: "🧩", ram_stick: "💾", mobile_pcb: "📱", li_ion_battery: "🔋", alkaline_battery: "🪫", copper_wire: "➰",
   charger_adapter: "🔌", hard_drive: "💽", aluminium_heatsink: "🔩", power_supply: "⚡", printer: "🖨️", crt_monitor_or_tv: "📺",
   lcd_led_monitor_or_tv: "🖥️", cfl_or_tube_light: "💡", router_or_modem: "📡", remote: "🎛️", laptop: "💻", desktop_cpu: "🗄️",
-  mobile_phone: "📱", other: "📦",
+  mobile_phone: "📱", lead_acid_battery: "🔋", ups_unit: "🔌", copper_scrap: "🟠", split_ac: "❄️", window_ac: "❄️",
+  refrigerator: "🧊", washing_machine: "🧺", microwave: "🍲", other: "📦",
 };
 
 export default function ResultDisplay({ result, onRetake }: { result: any; onRetake: () => void }) {
@@ -958,7 +965,17 @@ export function useLanguage() {
   "c_printer": "Printer",
   "c_crt_monitor_or_tv": "CRT monitor/TV",
   "c_lcd_led_monitor_or_tv": "LCD/LED monitor/TV",
-  "c_desktop_cpu": "Desktop CPU box"
+  "c_desktop_cpu": "Desktop CPU box",
+  "c_lead_acid_battery": "Lead-acid battery (inverter/UPS)",
+  "c_ups_unit": "UPS unit",
+  "c_copper_scrap": "Clean copper (coil/pipe)",
+  "c_split_ac": "Split AC",
+  "c_window_ac": "Window AC",
+  "c_refrigerator": "Refrigerator",
+  "c_washing_machine": "Washing machine",
+  "c_microwave": "Microwave",
+  "h_lead_acid_battery": "Lead-acid battery: contains acid and lead. Keep it upright. Do not open, burn or drain it.",
+  "h_refrigerant_gas": "Contains refrigerant gas. Do not cut or break the pipes or compressor."
 }
 `
 
@@ -982,7 +999,7 @@ export function useLanguage() {
   "itemsFound": "मिला हुआ सामान",
   "hazardsDetected": "खतरा! इन्हें अलग रखें",
   "g_general": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।",
-  "h_swollen_battery": "खतरा: फूली हुई लिथियम बैटरी। इसे जलाएं नहीं, छेदें মজबूत, दबाएं नहीं।",
+  "h_swollen_battery": "खतरा: फूली हुई लिथियम बैटरी। इसे जलाएं नहीं, छेदें नहीं, दबाएं नहीं।",
   "h_leaking_battery": "बैटरी से तरल निकल रहा है। नंगे हाथ से न छुएं। इसे अलग रखें।",
   "h_mercury_lamp": "इसमें पारा (मरकरी) है। ट्यूब या बल्ब न तोड़ें।",
   "h_crt_or_lead_glass": "खतरनाक: इसमें सीसे का कांच है। इसे न तोड़ें।",
@@ -1017,7 +1034,17 @@ export function useLanguage() {
   "c_printer": "प्रिंटर",
   "c_crt_monitor_or_tv": "CRT मॉनिटर/टीवी",
   "c_lcd_led_monitor_or_tv": "LCD/LED मॉनिटर/टीवी",
-  "c_desktop_cpu": "डेस्कटॉप CPU बॉक्स"
+  "c_desktop_cpu": "डेस्कटॉप CPU बॉक्स",
+  "c_lead_acid_battery": "लेड-एसिड बैटरी (इन्वर्टर/UPS)",
+  "c_ups_unit": "UPS",
+  "c_copper_scrap": "साफ़ तांबा (कॉइल/पाइप)",
+  "c_split_ac": "स्प्लिट AC",
+  "c_window_ac": "विंडो AC",
+  "c_refrigerator": "फ्रिज",
+  "c_washing_machine": "वॉशिंग मशीन",
+  "c_microwave": "माइक्रोवेव",
+  "h_lead_acid_battery": "लेड-एसिड बैटरी: इसमें तेज़ाब और सीसा है। इसे सीधा रखें। खोलें नहीं, जलाएं नहीं, तेज़ाब न निकालें।",
+  "h_refrigerant_gas": "इसमें रेफ्रिजरेंट गैस है। पाइप या कंप्रेसर को न काटें और न तोड़ें。"
 }
 `
 
@@ -1459,7 +1486,7 @@ def handler(event, context):
  {
   "component": "copper_wire",
   "basis": "per_kg",
-  "min_inr": 250,
+  "min_inr": 170,
   "max_inr": 480,
   "confidence": "web_estimate",
   "checked_date": "2026-10-08",
@@ -1481,16 +1508,28 @@ def handler(event, context):
     "url": "https://www.primescrap.in/rates",
     "value": "copper wire Rs200/kg",
     "date": "2026-06-23"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "electrical wire Rs170/kg, gray wire Rs350/kg",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "electrical wiring Rs100-300/kg",
+    "date": "2026"
    }
   ],
-  "source": "nationalrecycling.in; IndiaMART listing; Prime Scrap Noida/Delhi"
+  "source": "nationalrecycling.in; IndiaMART listing; Prime Scrap Noida/Delhi; Live Chennai; Reuze Hyderabad"
  },
  {
   "component": "aluminium_heatsink",
   "basis": "per_kg",
-  "min_inr": 120,
-  "max_inr": 250,
-  "confidence": "web_estimate_weak",
+  "min_inr": 180,
+  "max_inr": 350,
+  "confidence": "web_estimate",
   "checked_date": "2026-10-08",
   "sources": [
    {
@@ -1510,9 +1549,27 @@ def handler(event, context):
     "url": "https://www.bankbazaar.com/commodity-price/aluminium-price.html",
     "value": "aluminium Rs338/kg spot, Delhi scrap about Rs190",
     "date": "2026-10-07"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "aluminium Rs350/kg",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "aluminium Rs200/kg",
+    "date": "2026"
+   },
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "aluminium Rs120-180/kg",
+    "date": "2026-03-08"
    }
   ],
-  "source": "kabadiwalaonline; Prime Scrap; BankBazaar"
+  "source": "kabadiwalaonline; Prime Scrap; BankBazaar; Live Chennai; Reuze Hyderabad; kabadiwalaonline"
  },
  {
   "component": "charger_adapter",
@@ -1620,9 +1677,15 @@ def handler(event, context):
     "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
     "value": "Rs15/kg",
     "date": "undated"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "inkjet Rs50, dot-matrix Rs100, laser Rs300 per piece",
+    "date": "2025-10-30"
    }
   ],
-  "source": "Prime Scrap; Scrapia (IndiaMART); old Delhi dealer blog"
+  "source": "Prime Scrap; Scrapia (IndiaMART); old Delhi dealer blog; Live Chennai"
  },
  {
   "component": "crt_monitor_or_tv",
@@ -1655,9 +1718,15 @@ def handler(event, context):
     "url": "https://recyclebaba.com/scrap-price-list",
     "value": "CRT monitor Rs100-200",
     "date": "2025"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "CRT monitor Rs200, CRT TV Rs100-200",
+    "date": "2026"
    }
   ],
-  "source": "Prime Scrap; Reuze; Live Chennai; Recycle Baba"
+  "source": "Prime Scrap; Reuze; Live Chennai; Recycle Baba; Reuze Hyderabad"
  },
  {
   "component": "lcd_led_monitor_or_tv",
@@ -1690,14 +1759,20 @@ def handler(event, context):
     "url": "https://www.primescrap.in/rates",
     "value": "LCD monitor/TV Rs40/kg",
     "date": "2026-06-23"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "LCD/LED TV Rs100-2000 per piece, LCD monitor Rs20/kg",
+    "date": "2026"
    }
   ],
-  "source": "Live Chennai; Recycle Baba; Scrapia (IndiaMART); Prime Scrap"
+  "source": "Live Chennai; Recycle Baba; Scrapia (IndiaMART); Prime Scrap; Reuze Hyderabad"
  },
  {
   "component": "router_or_modem",
   "basis": "per_kg",
-  "min_inr": 30,
+  "min_inr": 20,
   "max_inr": 60,
   "confidence": "web_estimate_weak",
   "checked_date": "2026-10-08",
@@ -1719,14 +1794,20 @@ def handler(event, context):
     "url": "https://www.primescrap.in/rates",
     "value": "metal e-waste Rs25-30/kg",
     "date": "2026-06"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "mixed e-waste Rs20/kg",
+    "date": "2026"
    }
   ],
-  "source": "kabadiwalaonline; scraprates.in Delhi; Prime Scrap"
+  "source": "kabadiwalaonline; scraprates.in Delhi; Prime Scrap; Reuze Hyderabad"
  },
  {
   "component": "remote",
   "basis": "per_kg",
-  "min_inr": 15,
+  "min_inr": 5,
   "max_inr": 30,
   "confidence": "web_estimate_weak",
   "checked_date": "2026-10-08",
@@ -1742,9 +1823,15 @@ def handler(event, context):
     "url": "https://www.primescrap.in/rates",
     "value": "plastic e-waste Rs15/kg",
     "date": "2026-06-23"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "hard plastic Rs2/kg",
+    "date": "2026"
    }
   ],
-  "source": "kabadiwalaonline; Prime Scrap"
+  "source": "kabadiwalaonline; Prime Scrap; Reuze Hyderabad"
  },
  {
   "component": "laptop",
@@ -1777,9 +1864,21 @@ def handler(event, context):
     "url": "https://dir.indiamart.com/impcat/laptop-scrap.html",
     "value": "Rs180-500/kg",
     "date": "2026"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "laptop not working Rs300",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "Rs200 and up per laptop (working ones far higher)",
+    "date": "2026"
    }
   ],
-  "source": "kabadiwalaonline; todaypricerates; Prime Scrap; IndiaMART listings"
+  "source": "kabadiwalaonline; todaypricerates; Prime Scrap; IndiaMART listings; Live Chennai; Reuze Hyderabad"
  },
  {
   "component": "desktop_cpu",
@@ -1800,9 +1899,21 @@ def handler(event, context):
     "url": "https://www.indiamart.com/proddetail/led-and-lcd-tv-and-monitor-scrap-2855382183830.html",
     "value": "CPU computer scrap Rs120 per piece",
     "date": "2026"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "P4/dual-core complete branded set Rs400",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "CPU Rs50/kg",
+    "date": "2026"
    }
   ],
-  "source": "Prime Scrap; Scrapia (IndiaMART)"
+  "source": "Prime Scrap; Scrapia (IndiaMART); Live Chennai; Reuze Hyderabad"
  },
  {
   "component": "mobile_phone",
@@ -1823,9 +1934,193 @@ def handler(event, context):
     "url": "https://www.primescrap.in/rates",
     "value": "smartphone Rs300, keypad phone Rs40, tablet Rs50",
     "date": "2026-06-23"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "mobile/tab Rs20-500 per piece",
+    "date": "2026"
    }
   ],
-  "source": "todaypricerates; Prime Scrap"
+  "source": "todaypricerates; Prime Scrap; Reuze Hyderabad"
+ },
+ {
+  "component": "lead_acid_battery",
+  "sources": [
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "inverter battery Rs85-95/kg",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "lead battery Rs100-120/kg",
+    "date": "2026-03-08"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "battery Rs80-130/kg",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_kg",
+  "min_inr": 85,
+  "max_inr": 130,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "source": "Prime Scrap; kabadiwalaonline; Reuze Hyderabad"
+ },
+ {
+  "component": "ups_unit",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "0.5-2 kVA UPS with battery Rs200-800",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "UPS Rs350 per piece",
+    "date": "2026-06-23"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 200,
+  "max_inr": 800,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "source": "Live Chennai; Prime Scrap"
+ },
+ {
+  "component": "copper_scrap",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "copper OC Rs850, DC Rs950/kg",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "copper Rs1000/kg",
+    "date": "2026"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "copper scrap Rs1000/kg",
+    "date": "2026-06-23"
+   }
+  ],
+  "basis": "per_kg",
+  "min_inr": 850,
+  "max_inr": 1000,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "source": "Live Chennai; Reuze Hyderabad; Prime Scrap"
+ },
+ {
+  "component": "split_ac",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "split AC 1-3 ton Rs2,000-4,000",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "split AC Rs3,500-5,500 per unit",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 2000,
+  "max_inr": 5500,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "source": "Live Chennai; Reuze Hyderabad"
+ },
+ {
+  "component": "window_ac",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "window AC 1-2 ton Rs1,500-3,000",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "window AC Rs3,000-5,000",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 1500,
+  "max_inr": 5000,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "source": "Live Chennai; Reuze Hyderabad"
+ },
+ {
+  "component": "refrigerator",
+  "sources": [
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "fridge Rs500-9,000 per piece (very wide, single source)",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 500,
+  "max_inr": 9000,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "source": "Reuze Hyderabad"
+ },
+ {
+  "component": "washing_machine",
+  "sources": [
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "top load Rs700, front load Rs800",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 700,
+  "max_inr": 800,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "source": "Reuze Hyderabad"
+ },
+ {
+  "component": "microwave",
+  "sources": [
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "microwave Rs150-1,000 per piece",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 150,
+  "max_inr": 1000,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "source": "Reuze Hyderabad"
  },
  {
   "component": "li_ion_battery",

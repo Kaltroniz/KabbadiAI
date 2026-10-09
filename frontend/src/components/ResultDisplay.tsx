@@ -7,7 +7,8 @@ const ICON: Record<string, string> = {
   motherboard: "🧩", ram_stick: "💾", mobile_pcb: "📱", li_ion_battery: "🔋", alkaline_battery: "🪫", copper_wire: "➰",
   charger_adapter: "🔌", hard_drive: "💽", aluminium_heatsink: "🔩", power_supply: "⚡", printer: "🖨️", crt_monitor_or_tv: "📺",
   lcd_led_monitor_or_tv: "🖥️", cfl_or_tube_light: "💡", router_or_modem: "📡", remote: "🎛️", laptop: "💻", desktop_cpu: "🗄️",
-  mobile_phone: "📱", other: "📦",
+  mobile_phone: "📱", lead_acid_battery: "🔋", ups_unit: "🔌", copper_scrap: "🟠", split_ac: "❄️", window_ac: "❄️",
+  refrigerator: "🧊", washing_machine: "🧺", microwave: "🍲", other: "📦",
 };
 
 export default function ResultDisplay({ result, onRetake }: { result: any; onRetake: () => void }) {

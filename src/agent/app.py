@@ -16,9 +16,9 @@ RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
 LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
 MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
-COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "li_ion_battery", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "remote", "router_or_modem"}
+COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_scrap", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "lead_acid_battery", "li_ion_battery", "microwave", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "refrigerator", "remote", "router_or_modem", "split_ac", "ups_unit", "washing_machine", "window_ac"}
 CONDITIONS = {"intact", "corroded", "swollen", "leaking", "broken", "unknown"}
-HAZARDS = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass"}
+HAZARDS = {"swollen_battery", "leaking_battery", "mercury_lamp", "crt_or_lead_glass", "lead_acid_battery", "refrigerant_gas"}
 NO_VALUE = {"li_ion_battery", "alkaline_battery", "cfl_or_tube_light"}
 DISCLAIMER = "Indicative only, not an official valuation. Recycler data covers Delhi-NCR only (DPCC/CPCB list, 2023)."
 
@@ -33,6 +33,10 @@ HAZARD_MESSAGES = {
     "crt_or_lead_glass": {"en": "Hazardous: lead glass. Do not break open.",
                           "hi": "खतरनाक: इसमें सीसे का कांच है। इसे न तोड़ें।"},
 }
+HAZARD_MESSAGES["lead_acid_battery"] = {"en": "Lead-acid battery: contains acid and lead. Keep it upright. Do not open, burn or drain it.",
+    "hi": "लेड-एसिड बैटरी: इसमें तेज़ाब और सीसा है। इसे सीधा रखें। खोलें नहीं, जलाएं नहीं, तेज़ाब न निकालें।"}
+HAZARD_MESSAGES["refrigerant_gas"] = {"en": "Contains refrigerant gas. Do not cut or break the pipes or compressor.",
+    "hi": "इसमें रेफ्रिजरेंट गैस है। पाइप या कंप्रेसर को न काटें और न तोड़ें।"}
 GENERAL = {"en": "Never burn circuit boards or use acid to extract metal.",
            "hi": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।"}
 
@@ -40,7 +44,7 @@ PROMPT = f"""You assess photographed discarded electronics in India. Return ONLY
 {{"items":[{{"component":<one of {sorted(COMPONENTS)}>,"condition":<one of {sorted(CONDITIONS)}>,"count":<int>,"est_weight_g":<int, TOTAL weight of all units in this line>}}],
  "hazards":[<subset of {sorted(HAZARDS)}>],"confidence":<0-100>,"notes":"<short>"}}
 List only what is visible. Lower confidence if blurry, dark or hidden. Flag swollen_battery only if a battery visibly bulges.
-For whole devices (laptop, desktop_cpu, mobile_phone, hard_drive, power_supply, crt_monitor_or_tv, lcd_led_monitor_or_tv) set count to the number of devices."""
+For whole devices (laptop, desktop_cpu, mobile_phone, hard_drive, power_supply, crt_monitor_or_tv, lcd_led_monitor_or_tv, ups_unit, split_ac, window_ac, refrigerator, washing_machine, microwave) set count to the number of devices."""
 
 MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "count": 1, "est_weight_g": 320},
                        {"component": "copper_wire", "condition": "intact", "count": 3, "est_weight_g": 270},
@@ -96,6 +100,8 @@ def _hazards(scan):  # model flags plus rules, so a swollen battery is never mis
         if k == "leaking" and c in ("li_ion_battery", "alkaline_battery"): h.add("leaking_battery")
         if c == "cfl_or_tube_light": h.add("mercury_lamp")
         if c == "crt_monitor_or_tv": h.add("crt_or_lead_glass")
+        if c in ("lead_acid_battery", "ups_unit"): h.add("lead_acid_battery")
+        if c in ("split_ac", "window_ac", "refrigerator"): h.add("refrigerant_gas")
     return sorted(h & HAZARDS)
 
 CTX = {}

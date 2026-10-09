@@ -48,7 +48,7 @@ def seed_table(table, items, key_attr, dry_run):
                 print("  DRY-RUN would write:", json.dumps(item))
             else:
                 batch.put_item(Item=dynamo_item)
-                print(f"  ✓ {item[key_attr]}")
+                print(f"  OK {item[key_attr]}")
 
 
 def main():

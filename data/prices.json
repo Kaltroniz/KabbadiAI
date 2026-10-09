@@ -107,7 +107,7 @@
  {
   "component": "copper_wire",
   "basis": "per_kg",
-  "min_inr": 250,
+  "min_inr": 170,
   "max_inr": 480,
   "confidence": "web_estimate",
   "checked_date": "2026-10-08",
@@ -129,16 +129,28 @@
     "url": "https://www.primescrap.in/rates",
     "value": "copper wire Rs200/kg",
     "date": "2026-06-23"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "electrical wire Rs170/kg, gray wire Rs350/kg",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "electrical wiring Rs100-300/kg",
+    "date": "2026"
    }
   ],
-  "source": "nationalrecycling.in; IndiaMART listing; Prime Scrap Noida/Delhi"
+  "source": "nationalrecycling.in; IndiaMART listing; Prime Scrap Noida/Delhi; Live Chennai; Reuze Hyderabad"
  },
  {
   "component": "aluminium_heatsink",
   "basis": "per_kg",
-  "min_inr": 120,
-  "max_inr": 250,
-  "confidence": "web_estimate_weak",
+  "min_inr": 180,
+  "max_inr": 350,
+  "confidence": "web_estimate",
   "checked_date": "2026-10-08",
   "sources": [
    {
@@ -158,9 +170,27 @@
     "url": "https://www.bankbazaar.com/commodity-price/aluminium-price.html",
     "value": "aluminium Rs338/kg spot, Delhi scrap about Rs190",
     "date": "2026-10-07"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "aluminium Rs350/kg",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "aluminium Rs200/kg",
+    "date": "2026"
+   },
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "aluminium Rs120-180/kg",
+    "date": "2026-03-08"
    }
   ],
-  "source": "kabadiwalaonline; Prime Scrap; BankBazaar"
+  "source": "kabadiwalaonline; Prime Scrap; BankBazaar; Live Chennai; Reuze Hyderabad; kabadiwalaonline"
  },
  {
   "component": "charger_adapter",
@@ -268,9 +298,15 @@
     "url": "http://electronicscrap.blogspot.com/p/our-current-buying-rates.html",
     "value": "Rs15/kg",
     "date": "undated"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "inkjet Rs50, dot-matrix Rs100, laser Rs300 per piece",
+    "date": "2025-10-30"
    }
   ],
-  "source": "Prime Scrap; Scrapia (IndiaMART); old Delhi dealer blog"
+  "source": "Prime Scrap; Scrapia (IndiaMART); old Delhi dealer blog; Live Chennai"
  },
  {
   "component": "crt_monitor_or_tv",
@@ -303,9 +339,15 @@
     "url": "https://recyclebaba.com/scrap-price-list",
     "value": "CRT monitor Rs100-200",
     "date": "2025"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "CRT monitor Rs200, CRT TV Rs100-200",
+    "date": "2026"
    }
   ],
-  "source": "Prime Scrap; Reuze; Live Chennai; Recycle Baba"
+  "source": "Prime Scrap; Reuze; Live Chennai; Recycle Baba; Reuze Hyderabad"
  },
  {
   "component": "lcd_led_monitor_or_tv",
@@ -338,14 +380,20 @@
     "url": "https://www.primescrap.in/rates",
     "value": "LCD monitor/TV Rs40/kg",
     "date": "2026-06-23"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "LCD/LED TV Rs100-2000 per piece, LCD monitor Rs20/kg",
+    "date": "2026"
    }
   ],
-  "source": "Live Chennai; Recycle Baba; Scrapia (IndiaMART); Prime Scrap"
+  "source": "Live Chennai; Recycle Baba; Scrapia (IndiaMART); Prime Scrap; Reuze Hyderabad"
  },
  {
   "component": "router_or_modem",
   "basis": "per_kg",
-  "min_inr": 30,
+  "min_inr": 20,
   "max_inr": 60,
   "confidence": "web_estimate_weak",
   "checked_date": "2026-10-08",
@@ -367,14 +415,20 @@
     "url": "https://www.primescrap.in/rates",
     "value": "metal e-waste Rs25-30/kg",
     "date": "2026-06"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "mixed e-waste Rs20/kg",
+    "date": "2026"
    }
   ],
-  "source": "kabadiwalaonline; scraprates.in Delhi; Prime Scrap"
+  "source": "kabadiwalaonline; scraprates.in Delhi; Prime Scrap; Reuze Hyderabad"
  },
  {
   "component": "remote",
   "basis": "per_kg",
-  "min_inr": 15,
+  "min_inr": 5,
   "max_inr": 30,
   "confidence": "web_estimate_weak",
   "checked_date": "2026-10-08",
@@ -390,9 +444,15 @@
     "url": "https://www.primescrap.in/rates",
     "value": "plastic e-waste Rs15/kg",
     "date": "2026-06-23"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "hard plastic Rs2/kg",
+    "date": "2026"
    }
   ],
-  "source": "kabadiwalaonline; Prime Scrap"
+  "source": "kabadiwalaonline; Prime Scrap; Reuze Hyderabad"
  },
  {
   "component": "laptop",
@@ -425,9 +485,21 @@
     "url": "https://dir.indiamart.com/impcat/laptop-scrap.html",
     "value": "Rs180-500/kg",
     "date": "2026"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "laptop not working Rs300",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "Rs200 and up per laptop (working ones far higher)",
+    "date": "2026"
    }
   ],
-  "source": "kabadiwalaonline; todaypricerates; Prime Scrap; IndiaMART listings"
+  "source": "kabadiwalaonline; todaypricerates; Prime Scrap; IndiaMART listings; Live Chennai; Reuze Hyderabad"
  },
  {
   "component": "desktop_cpu",
@@ -448,9 +520,21 @@
     "url": "https://www.indiamart.com/proddetail/led-and-lcd-tv-and-monitor-scrap-2855382183830.html",
     "value": "CPU computer scrap Rs120 per piece",
     "date": "2026"
+   },
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "P4/dual-core complete branded set Rs400",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "CPU Rs50/kg",
+    "date": "2026"
    }
   ],
-  "source": "Prime Scrap; Scrapia (IndiaMART)"
+  "source": "Prime Scrap; Scrapia (IndiaMART); Live Chennai; Reuze Hyderabad"
  },
  {
   "component": "mobile_phone",
@@ -471,9 +555,193 @@
     "url": "https://www.primescrap.in/rates",
     "value": "smartphone Rs300, keypad phone Rs40, tablet Rs50",
     "date": "2026-06-23"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "mobile/tab Rs20-500 per piece",
+    "date": "2026"
    }
   ],
-  "source": "todaypricerates; Prime Scrap"
+  "source": "todaypricerates; Prime Scrap; Reuze Hyderabad"
+ },
+ {
+  "component": "lead_acid_battery",
+  "sources": [
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "inverter battery Rs85-95/kg",
+    "date": "2026-06-23"
+   },
+   {
+    "name": "kabadiwalaonline",
+    "url": "https://kabadiwalaonline.in/scrap-price-today/",
+    "value": "lead battery Rs100-120/kg",
+    "date": "2026-03-08"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "battery Rs80-130/kg",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_kg",
+  "min_inr": 85,
+  "max_inr": 130,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "source": "Prime Scrap; kabadiwalaonline; Reuze Hyderabad"
+ },
+ {
+  "component": "ups_unit",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "0.5-2 kVA UPS with battery Rs200-800",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "UPS Rs350 per piece",
+    "date": "2026-06-23"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 200,
+  "max_inr": 800,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "source": "Live Chennai; Prime Scrap"
+ },
+ {
+  "component": "copper_scrap",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "copper OC Rs850, DC Rs950/kg",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "copper Rs1000/kg",
+    "date": "2026"
+   },
+   {
+    "name": "Prime Scrap",
+    "url": "https://www.primescrap.in/rates",
+    "value": "copper scrap Rs1000/kg",
+    "date": "2026-06-23"
+   }
+  ],
+  "basis": "per_kg",
+  "min_inr": 850,
+  "max_inr": 1000,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "source": "Live Chennai; Reuze Hyderabad; Prime Scrap"
+ },
+ {
+  "component": "split_ac",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "split AC 1-3 ton Rs2,000-4,000",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "split AC Rs3,500-5,500 per unit",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 2000,
+  "max_inr": 5500,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "source": "Live Chennai; Reuze Hyderabad"
+ },
+ {
+  "component": "window_ac",
+  "sources": [
+   {
+    "name": "Live Chennai",
+    "url": "https://www.livechennai.com/scrap_prices_Chennai.asp",
+    "value": "window AC 1-2 ton Rs1,500-3,000",
+    "date": "2025-10-30"
+   },
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "window AC Rs3,000-5,000",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 1500,
+  "max_inr": 5000,
+  "confidence": "web_estimate",
+  "checked_date": "2026-10-08",
+  "source": "Live Chennai; Reuze Hyderabad"
+ },
+ {
+  "component": "refrigerator",
+  "sources": [
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "fridge Rs500-9,000 per piece (very wide, single source)",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 500,
+  "max_inr": 9000,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "source": "Reuze Hyderabad"
+ },
+ {
+  "component": "washing_machine",
+  "sources": [
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "top load Rs700, front load Rs800",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 700,
+  "max_inr": 800,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "source": "Reuze Hyderabad"
+ },
+ {
+  "component": "microwave",
+  "sources": [
+   {
+    "name": "Reuze Hyderabad",
+    "url": "https://www.reuze.in/scrap-rate-today",
+    "value": "microwave Rs150-1,000 per piece",
+    "date": "2026"
+   }
+  ],
+  "basis": "per_piece",
+  "min_inr": 150,
+  "max_inr": 1000,
+  "confidence": "web_estimate_weak",
+  "checked_date": "2026-10-08",
+  "source": "Reuze Hyderabad"
  },
  {
   "component": "li_ion_battery",

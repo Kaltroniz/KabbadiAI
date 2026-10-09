@@ -51,5 +51,15 @@
   "c_printer": "Printer",
   "c_crt_monitor_or_tv": "CRT monitor/TV",
   "c_lcd_led_monitor_or_tv": "LCD/LED monitor/TV",
-  "c_desktop_cpu": "Desktop CPU box"
+  "c_desktop_cpu": "Desktop CPU box",
+  "c_lead_acid_battery": "Lead-acid battery (inverter/UPS)",
+  "c_ups_unit": "UPS unit",
+  "c_copper_scrap": "Clean copper (coil/pipe)",
+  "c_split_ac": "Split AC",
+  "c_window_ac": "Window AC",
+  "c_refrigerator": "Refrigerator",
+  "c_washing_machine": "Washing machine",
+  "c_microwave": "Microwave",
+  "h_lead_acid_battery": "Lead-acid battery: contains acid and lead. Keep it upright. Do not open, burn or drain it.",
+  "h_refrigerant_gas": "Contains refrigerant gas. Do not cut or break the pipes or compressor."
 }
