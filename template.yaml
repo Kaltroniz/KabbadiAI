@@ -51,6 +51,17 @@ Resources:
         - AttributeName: component
           KeyType: HASH
 
+  LotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
   RecyclersTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -153,6 +164,7 @@ Resources:
           AGENT_MODE: "0"
           PRICES_TABLE: !Ref PricesTable
           RECYCLERS_TABLE: !Ref RecyclersTable
+          LOTS_TABLE: !Ref LotsTable
           PROVIDER_ORDER: "gemini,bedrock"
           GEMINI_API_KEY: !Ref GeminiApiKey
           GEMINI_MODEL: !Ref GeminiModel
@@ -165,15 +177,70 @@ Resources:
               Action:
                 - dynamodb:GetItem
                 - dynamodb:Scan
+                - dynamodb:PutItem
               Resource:
                 - !GetAtt PricesTable.Arn
                 - !GetAtt RecyclersTable.Arn
+                - !GetAtt LotsTable.Arn
       Events:
         Agent:
           Type: HttpApi
           Properties:
             ApiId: !Ref Api
             Path: /agent
+            Method: POST
+
+  LotsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/lots/
+      Handler: app.handler
+      Environment:
+        Variables:
+          LOTS_TABLE: !Ref LotsTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Scan
+              Resource: !GetAtt LotsTable.Arn
+      Events:
+        Stats:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /stats
+            Method: GET
+        GetLot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /lots/{id}
+            Method: GET
+
+  AnalystFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/analyst/
+      Handler: app.handler
+      Timeout: 29
+      Environment:
+        Variables:
+          LOTS_TABLE: !Ref LotsTable
+          GEMINI_API_KEY: !Ref GeminiApiKey
+          GEMINI_MODEL: !Ref GeminiModel
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:Scan]
+              Resource: !GetAtt LotsTable.Arn
+      Events:
+        Analyst:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /analyst
             Method: POST
 
 Outputs:
