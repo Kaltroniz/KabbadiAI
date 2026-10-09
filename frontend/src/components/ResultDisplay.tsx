@@ -18,7 +18,18 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
     <button onClick={() => speak(text)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-white/90 text-stone-900 text-xl font-bold">🔊 {t("listen")}</button>
   );
 
-  if (result.type === "clarify" || result.type === "error") {
+  if (result.type === "clarify" || result.type === "error" || result.type === "offline") {
+    if (result.type === "offline") {
+      return (
+        <div className="card flex flex-col items-center text-center gap-4 animate-fade-in bg-stone-100">
+          <div className="text-6xl">📡</div>
+          <h2 className="text-2xl font-black text-amber-600">You are offline</h2>
+          <p className="text-lg font-medium">Your photo has been saved to the device. KabadiAI needs internet to run the analysis.</p>
+          <p className="text-stone-500">Connect to the internet to analyze your queued lots.</p>
+          <button onClick={onRetake} className="btn bg-stone-800 text-white mt-2">📷 Take another photo</button>
+        </div>
+      );
+    }
     const msg = t(result.type === "error" ? "scanFailed" : "errorLowConfidence");
     return (
       <div className="card flex flex-col items-center text-center gap-4 animate-fade-in">

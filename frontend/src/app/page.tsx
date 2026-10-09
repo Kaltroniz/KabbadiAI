@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import CameraCapture from "@/components/CameraCapture";
 import ResultDisplay from "@/components/ResultDisplay";
 import { useLanguage, LANGS } from "@/contexts/LanguageContext";
+import { get, set } from "idb-keyval";
 
 export default function Home() {
   const { lang, setLang, t, speak } = useLanguage();
@@ -11,11 +12,23 @@ export default function Home() {
   const [result, setResult] = useState<any>(null);
   const [offer, setOffer] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [queueCount, setQueueCount] = useState(0);
 
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
       (p) => setCoords({ lat: p.coords.latitude, lon: p.coords.longitude }), () => {}, { timeout: 10000, maximumAge: 60000 });
+    get("offlineQueue").then((q) => setQueueCount((q || []).length));
   }, []);
+
+  const syncQueue = async () => {
+    if (!navigator.onLine) return;
+    const q = (await get("offlineQueue")) || [];
+    if (!q.length) return;
+    const item = q.shift();
+    await set("offlineQueue", q);
+    setQueueCount(q.length);
+    await onCapture(item.b64, item.mime);
+  };
 
   const onCapture = async (b64: string, mime: string) => {
     setLoading(true); setResult(null);
@@ -23,6 +36,17 @@ export default function Home() {
     if (coords) { payload.lat = coords.lat; payload.lon = coords.lon; }
     const n = parseFloat(offer);
     if (n > 0) payload.dealer_offer_inr = n;
+
+    if (!navigator.onLine) {
+      const q = (await get("offlineQueue")) || [];
+      q.push({ b64, mime });
+      await set("offlineQueue", q);
+      setQueueCount(q.length);
+      setResult({ type: "offline" });
+      setLoading(false);
+      return;
+    }
+
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 40000);
     try {
@@ -39,6 +63,9 @@ export default function Home() {
       <header className="flex items-center justify-between mb-4">
         <h1 className="text-3xl font-extrabold text-emerald-800">♻ {t("title")}</h1>
         <div className="flex items-center gap-2">
+          {queueCount > 0 && (
+            <button onClick={syncQueue} className="px-4 py-2 bg-amber-400 rounded-xl font-bold">Sync ({queueCount})</button>
+          )}
           <a href="/insights" className="px-4 py-2 bg-stone-200 rounded-xl font-bold">Insights</a>
           <button onClick={() => speak(t("help"))} aria-label="Help" className="w-14 h-14 rounded-full bg-amber-400 text-3xl font-black">?</button>
         </div>
