@@ -11,6 +11,14 @@ Parameters:
     Default: "0"
     AllowedValues: ["0", "1"]
     Description: Set to "1" to return fixed mock data without calling Bedrock. Remove before final demo.
+  GeminiApiKey:
+    Type: String
+    Default: ""
+    Description: API Key for Google Gemini.
+  GeminiModel:
+    Type: String
+    Default: "gemini-2.5-flash"
+    Description: The exact model ID for Gemini.
 
 Globals:
   Function:
@@ -145,6 +153,9 @@ Resources:
           AGENT_MODE: "0"
           PRICES_TABLE: !Ref PricesTable
           RECYCLERS_TABLE: !Ref RecyclersTable
+          PROVIDER_ORDER: "gemini,bedrock"
+          GEMINI_API_KEY: !Ref GeminiApiKey
+          GEMINI_MODEL: !Ref GeminiModel
       Policies:
         - Statement:
             - Effect: Allow

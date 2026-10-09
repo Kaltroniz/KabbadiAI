@@ -3,7 +3,7 @@ Facts (prices, hazard text, recyclers) come from tables and fixed text, never fr
 The model only reads the photo. Tools take no data arguments, so the agent cannot corrupt numbers.
 AGENT_MODE=1 lets a Strands agent choose the order of steps; default (0) runs the same steps
 deterministically. API Gateway HTTP APIs cut requests at 30 s, so measure agent latency first."""
-import base64, json, math, os, re, uuid
+import base64, json, math, os, re, urllib.request, uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import boto3
@@ -14,6 +14,9 @@ AGENT_MODE = os.environ.get("AGENT_MODE", "0") == "1"
 PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
 RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
 LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
+PROVIDER_ORDER = [x.strip() for x in os.environ.get("PROVIDER_ORDER", "gemini,bedrock").split(",") if x.strip()]
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")  # confirm the exact id in Google AI Studio
 MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
 COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_scrap", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "lead_acid_battery", "li_ion_battery", "microwave", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "refrigerator", "remote", "router_or_modem", "split_ac", "ups_unit", "washing_machine", "window_ac"}
@@ -79,18 +82,41 @@ def _clean(raw):
     return {"items": items, "hazards": [h for h in raw.get("hazards", []) if h in HAZARDS],
             "confidence": max(0, min(100, int(raw.get("confidence", 0) or 0))), "notes": str(raw.get("notes", ""))[:300]}
 
-def _bedrock_scan(img, fmt):
-    client = boto3.client("bedrock-runtime")
-    for _ in range(2):
+def _text_bedrock(img, fmt):
+    from botocore.config import Config
+    client = boto3.client("bedrock-runtime", config=Config(read_timeout=15, connect_timeout=5, retries={"max_attempts": 1}))
+    r = client.converse(modelId=MODEL_ID, messages=[{"role": "user", "content": [
+        {"image": {"format": fmt, "source": {"bytes": img}}}, {"text": PROMPT}]}], inferenceConfig={"maxTokens": 1000})
+    return r["output"]["message"]["content"][0]["text"]
+
+def _text_gemini(img, mime):
+    body = {"contents": [{"parts": [{"inline_data": {"mime_type": mime, "data": base64.b64encode(img).decode()}}, {"text": PROMPT}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0, "maxOutputTokens": 1500}}
+    req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                                 json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY})
+    with urllib.request.urlopen(req, timeout=18) as r:
+        return json.load(r)["candidates"][0]["content"]["parts"][0]["text"]
+
+def _scan_with_providers(img, fmt):
+    """Tries each provider in PROVIDER_ORDER; the first valid answer wins. Records which one answered."""
+    errors = []
+    for prov in PROVIDER_ORDER:
         try:
-            r = client.converse(modelId=MODEL_ID, messages=[{"role": "user", "content": [
-                {"image": {"format": fmt, "source": {"bytes": img}}}, {"text": PROMPT}]}],
-                inferenceConfig={"maxTokens": 1000})
-            m = re.search(r"\{.*\}", r["output"]["message"]["content"][0]["text"], re.S)
-            return _clean(json.loads(m.group(0)))
-        except (AttributeError, ValueError, KeyError, TypeError):
-            continue
-    raise RuntimeError("model returned invalid output")
+            if prov == "gemini":
+                if not GEMINI_KEY: raise RuntimeError("no gemini key set")
+                text = _text_gemini(img, "image/" + fmt)
+            elif prov == "bedrock":
+                text = _text_bedrock(img, fmt)
+            else:
+                continue
+            m = re.search(r"\{.*\}", text, re.S)
+            scan = _clean(json.loads(m.group(0)))
+            scan["provider"] = prov
+            return scan
+        except Exception as e:  # access denied, timeout, bad JSON: try the next provider
+            errors.append(f"{prov}: {type(e).__name__}")
+            print("provider failed:", prov, repr(e)[:300])
+    raise RuntimeError("all providers failed: " + "; ".join(errors))
 
 def _hazards(scan):  # model flags plus rules, so a swollen battery is never missed
     h = set(scan["hazards"])
@@ -107,7 +133,8 @@ def _hazards(scan):  # model flags plus rules, so a swollen battery is never mis
 CTX = {}
 
 def _analyze():
-    scan = json.loads(json.dumps(MOCK_SCAN)) if MOCK else _bedrock_scan(CTX["image"], CTX["fmt"])
+    scan = json.loads(json.dumps(MOCK_SCAN)) if MOCK else _scan_with_providers(CTX["image"], CTX["fmt"])
+    CTX["provider"] = "mock" if MOCK else scan.get("provider")
     scan["low_confidence"] = scan["confidence"] < MIN_CONF
     CTX["scan"] = scan
     return {"confidence": scan["confidence"], "low_confidence": scan["low_confidence"], "items": len(scan["items"])}
@@ -135,7 +162,8 @@ def _price():
         rows.append({"component": it["component"], "condition": it["condition"], "count": it["count"],
                      "est_weight_g": it["est_weight_g"], "min_inr": lo, "max_inr": hi, "hazardous": it["component"] in NO_VALUE,
                      "priced": priced, "basis": basis, "confidence": str(row.get("confidence", "")),
-                     "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", ""))})
+                     "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", "")),
+                     "sources": [{"name": str(x.get("name", "")), "value": str(x.get("value", "")), "date": str(x.get("date", ""))} for x in row.get("sources", [])]})
     CTX["line_items"], CTX["totals"] = rows, (round(lo_t, 2), round(hi_t, 2))
     return {"total_min_inr": CTX["totals"][0], "total_max_inr": CTX["totals"][1]}
 
@@ -162,7 +190,7 @@ def _finish():
     lo, hi = CTX["totals"]
     res = {"type": "result", "scan": CTX["scan"], "line_items": CTX["line_items"], "total_min_inr": lo,
            "total_max_inr": hi, "hazard_messages": CTX["hazards"], "recyclers": CTX["recyclers"],
-           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER}
+           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER, "provider": CTX.get("provider")}
     offer = CTX.get("offer")
     if offer is not None and hi > 0:
         res["verdict"] = "low" if offer < lo else "high" if offer > hi else "fair"
@@ -175,7 +203,7 @@ def _save_lot(res):
         return None
     lat, lon = CTX.get("lat"), CTX.get("lon")
     lot = {"id": uuid.uuid4().hex[:10], "created_at": datetime.now(timezone.utc).isoformat(), "status": "scanned",
-           "mock": bool(MOCK), "items": [{k: i[k] for k in ("component", "count", "est_weight_g", "min_inr", "max_inr")} for i in res["line_items"]],
+           "mock": bool(MOCK), "provider": CTX.get("provider"), "items": [{k: i[k] for k in ("component", "count", "est_weight_g", "min_inr", "max_inr")} for i in res["line_items"]],
            "hazards": [h["hazard_code"] for h in res["hazard_messages"]], "total_min_inr": res["total_min_inr"], "total_max_inr": res["total_max_inr"],
            "expires_at": int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())}
     if lat is not None and lon is not None:

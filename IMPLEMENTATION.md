@@ -39,6 +39,14 @@ Parameters:
     Default: "0"
     AllowedValues: ["0", "1"]
     Description: Set to "1" to return fixed mock data without calling Bedrock. Remove before final demo.
+  GeminiApiKey:
+    Type: String
+    Default: ""
+    Description: API Key for Google Gemini.
+  GeminiModel:
+    Type: String
+    Default: "gemini-2.5-flash"
+    Description: The exact model ID for Gemini.
 
 Globals:
   Function:
@@ -173,6 +181,9 @@ Resources:
           AGENT_MODE: "0"
           PRICES_TABLE: !Ref PricesTable
           RECYCLERS_TABLE: !Ref RecyclersTable
+          PROVIDER_ORDER: "gemini,bedrock"
+          GEMINI_API_KEY: !Ref GeminiApiKey
+          GEMINI_MODEL: !Ref GeminiModel
       Policies:
         - Statement:
             - Effect: Allow
@@ -209,7 +220,7 @@ Facts (prices, hazard text, recyclers) come from tables and fixed text, never fr
 The model only reads the photo. Tools take no data arguments, so the agent cannot corrupt numbers.
 AGENT_MODE=1 lets a Strands agent choose the order of steps; default (0) runs the same steps
 deterministically. API Gateway HTTP APIs cut requests at 30 s, so measure agent latency first."""
-import base64, json, math, os, re, uuid
+import base64, json, math, os, re, urllib.request, uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import boto3
@@ -220,6 +231,9 @@ AGENT_MODE = os.environ.get("AGENT_MODE", "0") == "1"
 PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
 RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
 LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
+PROVIDER_ORDER = [x.strip() for x in os.environ.get("PROVIDER_ORDER", "gemini,bedrock").split(",") if x.strip()]
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")  # confirm the exact id in Google AI Studio
 MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
 COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_scrap", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "lead_acid_battery", "li_ion_battery", "microwave", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "refrigerator", "remote", "router_or_modem", "split_ac", "ups_unit", "washing_machine", "window_ac"}
@@ -285,18 +299,41 @@ def _clean(raw):
     return {"items": items, "hazards": [h for h in raw.get("hazards", []) if h in HAZARDS],
             "confidence": max(0, min(100, int(raw.get("confidence", 0) or 0))), "notes": str(raw.get("notes", ""))[:300]}
 
-def _bedrock_scan(img, fmt):
-    client = boto3.client("bedrock-runtime")
-    for _ in range(2):
+def _text_bedrock(img, fmt):
+    from botocore.config import Config
+    client = boto3.client("bedrock-runtime", config=Config(read_timeout=15, connect_timeout=5, retries={"max_attempts": 1}))
+    r = client.converse(modelId=MODEL_ID, messages=[{"role": "user", "content": [
+        {"image": {"format": fmt, "source": {"bytes": img}}}, {"text": PROMPT}]}], inferenceConfig={"maxTokens": 1000})
+    return r["output"]["message"]["content"][0]["text"]
+
+def _text_gemini(img, mime):
+    body = {"contents": [{"parts": [{"inline_data": {"mime_type": mime, "data": base64.b64encode(img).decode()}}, {"text": PROMPT}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0, "maxOutputTokens": 1500}}
+    req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                                 json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY})
+    with urllib.request.urlopen(req, timeout=18) as r:
+        return json.load(r)["candidates"][0]["content"]["parts"][0]["text"]
+
+def _scan_with_providers(img, fmt):
+    """Tries each provider in PROVIDER_ORDER; the first valid answer wins. Records which one answered."""
+    errors = []
+    for prov in PROVIDER_ORDER:
         try:
-            r = client.converse(modelId=MODEL_ID, messages=[{"role": "user", "content": [
-                {"image": {"format": fmt, "source": {"bytes": img}}}, {"text": PROMPT}]}],
-                inferenceConfig={"maxTokens": 1000})
-            m = re.search(r"\{.*\}", r["output"]["message"]["content"][0]["text"], re.S)
-            return _clean(json.loads(m.group(0)))
-        except (AttributeError, ValueError, KeyError, TypeError):
-            continue
-    raise RuntimeError("model returned invalid output")
+            if prov == "gemini":
+                if not GEMINI_KEY: raise RuntimeError("no gemini key set")
+                text = _text_gemini(img, "image/" + fmt)
+            elif prov == "bedrock":
+                text = _text_bedrock(img, fmt)
+            else:
+                continue
+            m = re.search(r"\{.*\}", text, re.S)
+            scan = _clean(json.loads(m.group(0)))
+            scan["provider"] = prov
+            return scan
+        except Exception as e:  # access denied, timeout, bad JSON: try the next provider
+            errors.append(f"{prov}: {type(e).__name__}")
+            print("provider failed:", prov, repr(e)[:300])
+    raise RuntimeError("all providers failed: " + "; ".join(errors))
 
 def _hazards(scan):  # model flags plus rules, so a swollen battery is never missed
     h = set(scan["hazards"])
@@ -313,7 +350,8 @@ def _hazards(scan):  # model flags plus rules, so a swollen battery is never mis
 CTX = {}
 
 def _analyze():
-    scan = json.loads(json.dumps(MOCK_SCAN)) if MOCK else _bedrock_scan(CTX["image"], CTX["fmt"])
+    scan = json.loads(json.dumps(MOCK_SCAN)) if MOCK else _scan_with_providers(CTX["image"], CTX["fmt"])
+    CTX["provider"] = "mock" if MOCK else scan.get("provider")
     scan["low_confidence"] = scan["confidence"] < MIN_CONF
     CTX["scan"] = scan
     return {"confidence": scan["confidence"], "low_confidence": scan["low_confidence"], "items": len(scan["items"])}
@@ -341,7 +379,8 @@ def _price():
         rows.append({"component": it["component"], "condition": it["condition"], "count": it["count"],
                      "est_weight_g": it["est_weight_g"], "min_inr": lo, "max_inr": hi, "hazardous": it["component"] in NO_VALUE,
                      "priced": priced, "basis": basis, "confidence": str(row.get("confidence", "")),
-                     "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", ""))})
+                     "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", "")),
+                     "sources": [{"name": str(x.get("name", "")), "value": str(x.get("value", "")), "date": str(x.get("date", ""))} for x in row.get("sources", [])]})
     CTX["line_items"], CTX["totals"] = rows, (round(lo_t, 2), round(hi_t, 2))
     return {"total_min_inr": CTX["totals"][0], "total_max_inr": CTX["totals"][1]}
 
@@ -368,7 +407,7 @@ def _finish():
     lo, hi = CTX["totals"]
     res = {"type": "result", "scan": CTX["scan"], "line_items": CTX["line_items"], "total_min_inr": lo,
            "total_max_inr": hi, "hazard_messages": CTX["hazards"], "recyclers": CTX["recyclers"],
-           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER}
+           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER, "provider": CTX.get("provider")}
     offer = CTX.get("offer")
     if offer is not None and hi > 0:
         res["verdict"] = "low" if offer < lo else "high" if offer > hi else "fair"
@@ -381,7 +420,7 @@ def _save_lot(res):
         return None
     lat, lon = CTX.get("lat"), CTX.get("lon")
     lot = {"id": uuid.uuid4().hex[:10], "created_at": datetime.now(timezone.utc).isoformat(), "status": "scanned",
-           "mock": bool(MOCK), "items": [{k: i[k] for k in ("component", "count", "est_weight_g", "min_inr", "max_inr")} for i in res["line_items"]],
+           "mock": bool(MOCK), "provider": CTX.get("provider"), "items": [{k: i[k] for k in ("component", "count", "est_weight_g", "min_inr", "max_inr")} for i in res["line_items"]],
            "hazards": [h["hazard_code"] for h in res["hazard_messages"]], "total_min_inr": res["total_min_inr"], "total_max_inr": res["total_max_inr"],
            "expires_at": int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())}
     if lat is not None and lon is not None:
@@ -2219,5 +2258,181 @@ def handler(event, context):
     "checked_date": "2026-10-08"
   }
 ]
+`
+
+### src/analyst/app.py
+`python
+"""POST /analyst {question, language}. A Gemini function-calling loop over the anonymous lot ledger.
+Every number comes from a tool; the model only phrases the answer. The tool trace is returned so the chaining is visible.
+Mock lots are ignored. No personal data exists in the ledger (location is rounded to ~1 km)."""
+import json, os, urllib.request
+import boto3
+
+TABLE, KEY = os.environ.get("LOTS_TABLE", ""), os.environ.get("GEMINI_API_KEY", "")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MAX_ROUNDS = 4
+_t = None
+
+def _lots():
+    global _t
+    _t = _t or boto3.resource("dynamodb").Table(TABLE)
+    items, kw = [], {}
+    while True:
+        r = _t.scan(**kw); items += r.get("Items", [])
+        if "LastEvaluatedKey" not in r: break
+        kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+    return [l for l in items if not l.get("mock")]
+
+def _cells(lots):
+    cells = {}
+    for l in lots:
+        if l.get("cell_lat") is None: continue
+        k = (float(l["cell_lat"]), float(l["cell_lon"]))
+        c = cells.setdefault(k, {"lat": k[0], "lon": k[1], "lots": 0, "hazard_lots": 0, "kg": {}})
+        c["lots"] += 1; c["hazard_lots"] += 1 if l.get("hazards") else 0
+        for it in l.get("items", []):
+            c["kg"][it["component"]] = c["kg"].get(it["component"], 0) + float(it.get("est_weight_g", 0)) / 1000
+    return list(cells.values())
+
+def overview(lots):
+    kg, hz = {}, {}
+    for l in lots:
+        for it in l.get("items", []): kg[it["component"]] = kg.get(it["component"], 0) + float(it.get("est_weight_g", 0)) / 1000
+        for h in l.get("hazards", []): hz[h] = hz.get(h, 0) + 1
+    return {"lots": len(lots), "kg_by_material": {k: round(v, 2) for k, v in kg.items()}, "hazard_counts": hz,
+            "value_min_inr": round(sum(float(l.get("total_min_inr", 0)) for l in lots)),
+            "value_max_inr": round(sum(float(l.get("total_max_inr", 0)) for l in lots))}
+
+def hotspots(lots, limit=5):
+    cs = sorted(_cells(lots), key=lambda c: (-c["hazard_lots"], -c["lots"]))[:int(limit)]
+    return [{k: c[k] for k in ("lat", "lon", "lots", "hazard_lots")} for c in cs]
+
+def material_by_area(lots, component, min_kg=0):
+    out = [{"lat": c["lat"], "lon": c["lon"], "kg": round(c["kg"].get(component, 0), 2)} for c in _cells(lots) if c["kg"].get(component, 0) >= float(min_kg)]
+    return sorted(out, key=lambda x: -x["kg"])[:5]
+
+TOOLS = {"overview": overview, "hotspots": hotspots, "material_by_area": material_by_area}
+DECLS = [
+    {"name": "overview", "description": "Totals: lots, kg by material, hazard counts, value range in rupees."},
+    {"name": "hotspots", "description": "Areas (about 1 km cells) ranked by hazardous lots then lot count.",
+     "parameters": {"type": "OBJECT", "properties": {"limit": {"type": "INTEGER"}}}},
+    {"name": "material_by_area", "description": "Areas ranked by kg of one material, e.g. motherboard, copper_wire, lead_acid_battery.",
+     "parameters": {"type": "OBJECT", "properties": {"component": {"type": "STRING"}, "min_kg": {"type": "NUMBER"}}, "required": ["component"]}},
+]
+SYSTEM = ("You help a recycler or city planner read an anonymous e-waste lot ledger. Use the tools for every number; never invent figures. "
+          "Weights are estimated from photos and the ledger is a small early sample, so say so. Be brief and practical.")
+
+def _gemini(contents):
+    body = {"systemInstruction": {"parts": [{"text": SYSTEM}]}, "contents": contents,
+            "tools": [{"functionDeclarations": DECLS}], "generationConfig": {"temperature": 0}}
+    req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
+                                 json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": KEY})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.load(r)["candidates"][0]["content"]
+
+def _j(status, body):
+    return {"statusCode": status, "headers": {"content-type": "application/json"}, "body": json.dumps(body)}
+
+def handler(event, context):
+    try:
+        b = json.loads(event.get("body") or "{}")
+        q, lang = str(b.get("question", ""))[:300].strip(), str(b.get("language", "en"))[:5]
+        if not q: return _j(400, {"error": "question required"})
+        lots = _lots()
+    except Exception:
+        return _j(400, {"error": "bad request"})
+    if not lots:
+        return _j(200, {"answer": "No real scans are saved yet, so there is nothing to analyse.", "tools_used": [], "lots_considered": 0})
+    contents, trace = [{"role": "user", "parts": [{"text": f"{q}\n(Reply in language code: {lang})"}]}], []
+    try:
+        for _ in range(MAX_ROUNDS):
+            msg = _gemini(contents)
+            calls = [p["functionCall"] for p in msg.get("parts", []) if "functionCall" in p]
+            if not calls:
+                return _j(200, {"answer": "".join(p.get("text", "") for p in msg.get("parts", [])), "tools_used": trace, "lots_considered": len(lots)})
+            contents.append(msg); out = []
+            for c in calls:
+                args = c.get("args") or {}
+                try: res = TOOLS[c["name"]](lots, **args)
+                except Exception as e: res = {"error": type(e).__name__}
+                trace.append({"tool": c["name"], "args": args})
+                out.append({"functionResponse": {"name": c["name"], "response": {"result": res}}})
+            contents.append({"role": "user", "parts": out})
+        return _j(200, {"answer": "Could not finish the analysis. Try a simpler question.", "tools_used": trace, "lots_considered": len(lots)})
+    except Exception as e:
+        print("analyst error:", repr(e)[:300])
+        return _j(502, {"error": "analysis failed", "overview": overview(lots)})
+`
+
+### frontend/src/app/insights/page.tsx
+`tsx
+"use client";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { useEffect, useState } from "react";
+
+const API = process.env.NEXT_PUBLIC_API_URL;
+const ASKS = ["Where should a truck go for circuit boards?", "Which areas have the most hazardous lots?", "How much of each material do we have?"];
+
+export default function Insights() {
+  const [s, setS] = useState<any>(null);
+  const [err, setErr] = useState(false);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [ans, setAns] = useState<any>(null);
+
+  useEffect(() => { fetch(`${API}/stats`).then((r) => r.json()).then(setS).catch(() => setErr(true)); }, []);
+
+  const ask = async (text: string) => {
+    setQ(text); setBusy(true); setAns(null);
+    try {
+      const r = await fetch(`${API}/analyst`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: text, language: "en" }) });
+      setAns(await r.json());
+    } catch { setAns({ answer: "Could not reach the analyst. Try again." }); }
+    setBusy(false);
+  };
+
+  if (err) return <main className="p-4">Could not load stats.</main>;
+  if (!s) return <main className="p-4">Loading…</main>;
+  const cells: any[] = s.cells || [];
+  const lats = cells.map((c) => c.lat), lons = cells.map((c) => c.lon);
+  const pos = (v: number, arr: number[], size: number) => (Math.max(...arr) === Math.min(...arr) ? size / 2 : 20 + ((v - Math.min(...arr)) / (Math.max(...arr) - Math.min(...arr))) * (size - 40));
+  const mats = Object.entries(s.weight_kg_by_component || {}).sort((a: any, b: any) => b[1] - a[1]);
+  const top = mats.length ? (mats[0][1] as number) : 1;
+
+  return (
+    <main className="px-4 pt-4 pb-10 space-y-5">
+      <h1 className="text-2xl font-extrabold text-emerald-800">♻ KabadiAI Insights</h1>
+      <p className="text-sm text-stone-500">Real scans only, anonymous, about 1 km cells. Weights are estimated from photos. This is a small early sample.</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="card !p-3"><div className="text-3xl font-black">{s.lots}</div><div className="text-sm text-stone-500">lots scanned</div></div>
+        <div className="card !p-3"><div className="text-3xl font-black text-red-700">{Object.values(s.hazard_counts || {}).reduce((a: any, b: any) => a + b, 0) as number}</div><div className="text-sm text-stone-500">hazard flags</div></div>
+      </div>
+      <div className="card">
+        <h2 className="font-bold mb-2">Where lots are found</h2>
+        {cells.length === 0 ? <p className="text-stone-500">No located lots yet.</p> : (
+          <svg viewBox="0 0 300 300" className="w-full bg-stone-100 rounded-xl">
+            {cells.map((c, i) => <circle key={i} cx={pos(c.lon, lons, 300)} cy={300 - pos(c.lat, lats, 300)} r={8 + 4 * c.lots} fill={c.hazard_lots > 0 ? "#b91c1c" : "#047857"} fillOpacity={0.6} />)}
+          </svg>
+        )}
+        <p className="text-xs text-stone-500 mt-2">Red = cells with hazardous lots. Schematic positions, not a street map.</p>
+      </div>
+      <div className="card">
+        <h2 className="font-bold mb-3">Material found (kg, estimated)</h2>
+        {mats.map(([k, v]: any) => (
+          <div key={k} className="mb-2"><div className="flex justify-between text-sm"><span>{k.replace(/_/g, " ")}</span><span>{v}</span></div>
+            <div className="h-3 bg-stone-200 rounded"><div className="h-3 bg-emerald-700 rounded" style={{ width: `${(v / top) * 100}%` }} /></div></div>
+        ))}
+      </div>
+      <div className="card">
+        <h2 className="font-bold mb-2">Ask the analyst</h2>
+        <div className="flex flex-wrap gap-2 mb-3">{ASKS.map((a) => <button key={a} onClick={() => ask(a)} className="px-3 text-sm rounded-full bg-stone-200">{a}</button>)}</div>
+        <div className="flex gap-2"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about the ledger" className="flex-1 border rounded-xl px-3" />
+          <button onClick={() => q && ask(q)} disabled={busy} className="px-4 rounded-xl bg-emerald-700 text-white font-bold">{busy ? "…" : "Ask"}</button></div>
+        {ans && (<div className="mt-3"><p className="text-lg">{ans.answer}</p>
+          {ans.tools_used?.length > 0 && <p className="text-xs text-stone-500 mt-2">Tools used: {ans.tools_used.map((t: any) => t.tool).join(" → ")}</p>}</div>)}
+      </div>
+    </main>
+  );
+}
 `
 
