@@ -2584,3 +2584,27 @@ if __name__ == "__main__":
     run_accuracy(sys.argv[1], sys.argv[2])
 `
 
+### amplify.yml
+`
+version: 1
+applications:
+  - appRoot: frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - env | grep -e NEXT_PUBLIC_API_URL >> .env.production
+            - npm run build
+      artifacts:
+        baseDirectory: .next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+          - .next/cache/**/*
+`
+
