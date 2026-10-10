@@ -19,6 +19,15 @@ Parameters:
     Type: String
     Default: "gemini-3.5-flash"
     Description: The exact model ID for Gemini.
+  JwtSecret:
+    Type: String
+    Default: "kabadiai-change-me-before-deploy"
+    NoEcho: true
+    Description: HMAC-SHA256 secret for signing JWT tokens. Override in samconfig.toml.
+  GoogleClientId:
+    Type: String
+    Default: ""
+    Description: Google OAuth 2.0 Client ID (web application). Used to verify Google ID tokens.
 
 Globals:
   Function:
@@ -34,7 +43,7 @@ Resources:
       CorsConfiguration:
         AllowOrigins: ['*']
         AllowMethods: [POST, GET, OPTIONS]
-        AllowHeaders: [content-type]
+        AllowHeaders: [content-type, authorization]
       DefaultRouteSettings:
         ThrottlingBurstLimit: 10
         ThrottlingRateLimit: 5
@@ -72,6 +81,20 @@ Resources:
       KeySchema:
         - AttributeName: id
           KeyType: HASH
+
+  PickupsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
 
   # ── Lambda functions ───────────────────────────────────────────────────────
   ScanFunction:
@@ -243,6 +266,115 @@ Resources:
             Path: /analyst
             Method: POST
 
+  # ── Feature: Hotspot Map (GET /hotspots) ────────────────────────────────
+  HotspotsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/stats/
+      Handler: app.handler
+      Environment:
+        Variables:
+          LOTS_TABLE: !Ref LotsTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource: !GetAtt LotsTable.Arn
+      Events:
+        Hotspots:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /hotspots
+            Method: GET
+
+  # ── Feature: Bulk Pickup Alerts (GET + POST /pickup) ─────────────────────
+  PickupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/pickup/
+      Handler: app.handler
+      Environment:
+        Variables:
+          PICKUPS_TABLE: !Ref PickupsTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:Scan
+              Resource: !GetAtt PickupsTable.Arn
+      Events:
+        PickupPost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /pickup
+            Method: POST
+        PickupGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /pickup
+            Method: GET
+
+  # ── Feature: Authentication (POST /auth/register, /auth/login, /auth/google, GET /auth/me) ──
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/auth/
+      Handler: app.handler
+      Timeout: 15
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
+          JWT_SECRET: !Ref JwtSecret
+          GOOGLE_CLIENT_ID: !Ref GoogleClientId
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+              Resource: !GetAtt UsersTable.Arn
+      Events:
+        AuthRegister:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /auth/register
+            Method: POST
+        AuthLogin:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /auth/login
+            Method: POST
+        AuthGoogle:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /auth/google
+            Method: POST
+        AuthMe:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /auth/me
+            Method: GET
+
 Outputs:
   ApiUrl:
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com
@@ -250,3 +382,7 @@ Outputs:
     Value: !Ref PricesTable
   RecyclersTableName:
     Value: !Ref RecyclersTable
+  PickupsTableName:
+    Value: !Ref PickupsTable
+  UsersTableName:
+    Value: !Ref UsersTable
