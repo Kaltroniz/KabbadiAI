@@ -233,20 +233,20 @@ function MapPage() {
             <div>
               <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--text-primary)" }}>Route Planning Tip</div>
               <p style={{ color: "var(--text-muted)", fontSize: "0.78rem", margin: "2px 0 0" }}>
-                Prioritize <span style={{ color: "#f87171" }}>red zones</span> — they have hazardous materials needing specialized handling. Larger circles = higher pickup volume.
+                Prioritize <span style={{ color: "#f87171" }}>red zones</span> — they have hazardous materials needing specialized handling. Larger circles = higher lot volume.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Nav to pickups */}
+        {/* Back to Scanner */}
         <a
-          href="/pickups"
+          href="/"
           className="btn btn-primary"
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: "1rem", textDecoration: "none", borderRadius: 20, minHeight: 56 }}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: "1rem", textDecoration: "none", borderRadius: 20, minHeight: 52 }}
         >
-          <span>🔔</span>
-          <span style={{ fontFamily: "Outfit,sans-serif", fontWeight: 700, fontSize: "1rem" }}>View Pickup Requests</span>
+          <span>📷</span>
+          <span style={{ fontFamily: "Outfit,sans-serif", fontWeight: 700, fontSize: "1rem" }}>Back to Scanner</span>
         </a>
       </div>
     </>

@@ -27,6 +27,8 @@ function Home() {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<{ b64: string; mime: string } | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [weightKg, setWeightKg] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [queueCount, setQueueCount] = useState(0);
@@ -91,9 +93,22 @@ function Home() {
     };
   }, [showUserMenu]);
 
-  const onCapture = async (b64: string, mime: string) => {
+  const onPhotoCaptured = (b64: string, mime: string) => {
+    setCapturedPhoto({ b64, mime });
+    setSubmitError(null);
+  };
+
+  const submitToAi = async () => {
+    if (!capturedPhoto) {
+      setSubmitError(t("takePhotoFirst") || "Please take a photo first to submit");
+      return;
+    }
+
+    setSubmitError(null);
     setLoading(true);
     setResult(null);
+
+    const { b64, mime } = capturedPhoto;
     const w = parseFloat(weightKg);
     const user_weight_g = w > 0 ? Math.round(w * 1000) : undefined;
 
@@ -135,7 +150,6 @@ function Home() {
       });
       if (!res.ok) throw new Error(String(res.status));
       setResult(await res.json());
-      setWeightKg("");
     } catch (err: any) {
       if (
         !navigator.onLine ||
@@ -639,27 +653,32 @@ function Home() {
 
             {/* ── STEP CARDS ── */}
             <div className="grid grid-cols-3 gap-3 mb-6 stagger-children">
-              {[["📷", "step1"], ["🔍", "step2"], ["₹", "step3"]].map(([icon, k]) => (
+              {[["📷", "step1"], ["⚖️", "stepWeight"], ["✨", "step3"]].map(([icon, k]) => (
                 <div key={k} className="step-card">
                   <span className="step-icon">{icon}</span>
-                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{t(k)}</div>
+                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{t(k) || k}</div>
                 </div>
               ))}
             </div>
 
             {/* ── CAMERA CAPTURE ── */}
             <div className="animate-fade-up" style={{ animationDelay: "0.2s" }}>
-              <CameraCapture onCapture={onCapture} isLoading={loading} />
+              <CameraCapture
+                onCapture={onPhotoCaptured}
+                capturedImage={capturedPhoto}
+                onClearCapture={() => setCapturedPhoto(null)}
+                isLoading={loading}
+              />
             </div>
 
             {/* ── WEIGHT INPUT ── */}
-            <div className="animate-fade-up" style={{ animationDelay: "0.3s" }}>
+            <div className="animate-fade-up" style={{ animationDelay: "0.25s" }}>
               <label
-                className="block mt-7 mb-2 text-base font-semibold"
+                className="block mt-6 mb-2 text-base font-semibold"
                 style={{ color: "var(--text-muted)" }}
                 htmlFor="weight"
               >
-                ⚖️ Total weight of your lot (kg)
+                ⚖️ {t("enterOffer")}
               </label>
               <div className="card !p-4 flex items-center gap-3">
                 <span className="text-3xl font-black" style={{ color: "var(--emerald-glow)" }}>⚖️</span>
@@ -676,14 +695,77 @@ function Home() {
                 <span className="text-lg font-bold" style={{ color: "var(--text-muted)" }}>kg</span>
               </div>
               <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-                Optional. If provided, this weight is used for pricing instead of the AI estimate.
+                Optional. Enter the weight of your lot to get accurate valuation calculated by AI.
               </p>
+            </div>
+
+            {/* ── SUBMIT TO AI BUTTON ── */}
+            <div className="animate-fade-up mt-6" style={{ animationDelay: "0.3s" }}>
+              {submitError && (
+                <div
+                  className="mb-3 rounded-2xl px-4 py-2.5 font-semibold text-sm animate-fade-up flex items-center gap-2"
+                  style={{ background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.4)", color: "#fca5a5" }}
+                >
+                  <span>⚠️</span>
+                  <span>{submitError}</span>
+                </div>
+              )}
+
+              <button
+                id="submit-ai-btn"
+                type="button"
+                onClick={submitToAi}
+                disabled={loading || !capturedPhoto}
+                className={`btn btn-primary w-full !py-4 !rounded-2xl text-base font-black flex items-center justify-center gap-2 transition-all ${
+                  loading
+                    ? "opacity-80 cursor-wait"
+                    : !capturedPhoto
+                    ? "opacity-45 !bg-white/5 !text-white/40 !border !border-white/10 cursor-not-allowed"
+                    : "hover:scale-[1.02]"
+                }`}
+                style={{
+                  minHeight: 56,
+                  boxShadow: capturedPhoto && !loading ? "0 0 35px rgba(0,229,160,0.4), 0 4px 16px rgba(0,0,0,0.4)" : "none",
+                }}
+              >
+                {loading ? (
+                  <>
+                    <div style={{ position: "relative", width: 22, height: 22 }}>
+                      <div className="orbit-dot !w-2 !h-2" />
+                      <div className="orbit-dot !w-2 !h-2" />
+                    </div>
+                    <span>{t("analyzing")}</span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: "1.25rem" }}>✨</span>
+                    <span style={{ fontFamily: "Outfit, sans-serif", fontSize: "1.05rem" }}>
+                      {!capturedPhoto
+                        ? (t("takePhotoFirst") || "Take Photo First to Submit")
+                        : (t("submitToAi") || "Submit to AI")}
+                    </span>
+                    <span style={{ fontSize: "1.1rem" }}>🚀</span>
+                  </>
+                )}
+              </button>
+
+              {!capturedPhoto && (
+                <p className="text-center text-xs mt-2.5" style={{ color: "var(--text-muted)" }}>
+                  Take or choose a photo above to enable the AI valuation submit button
+                </p>
+              )}
             </div>
           </>
         ) : (
           <ResultDisplay
             result={result}
-            onRetake={() => { setResult(null); refreshQueue(); }}
+            onRetake={() => {
+              setResult(null);
+              setCapturedPhoto(null);
+              setWeightKg("");
+              setSubmitError(null);
+              refreshQueue();
+            }}
             onSync={syncNextQueueItem}
             remainingQueueCount={queueCount}
           />

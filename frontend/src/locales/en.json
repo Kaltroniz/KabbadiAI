@@ -67,5 +67,10 @@
   "c_microwave": "Microwave",
   "h_lead_acid_battery": "Lead-acid battery: contains acid and lead. Keep it upright. Do not open, burn or drain it.",
   "h_refrigerant_gas": "Contains refrigerant gas. Do not cut or break the pipes or compressor.",
-  "excludesUnpriced": "Total leaves out items with unknown price:"
+  "excludesUnpriced": "Total leaves out items with unknown price:",
+  "submitToAi": "Submit to AI",
+  "photoReady": "Photo Ready",
+  "retakePhoto": "Change Photo",
+  "stepWeight": "Weight",
+  "takePhotoFirst": "Take a photo first to submit"
 }

@@ -4,9 +4,13 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function CameraCapture({
   onCapture,
+  capturedImage,
+  onClearCapture,
   isLoading,
 }: {
   onCapture: (b64: string, mime: string) => void;
+  capturedImage?: { b64: string; mime: string } | null;
+  onClearCapture?: () => void;
   isLoading?: boolean;
 }) {
   const { t, speak } = useLanguage();
@@ -50,50 +54,134 @@ export default function CameraCapture({
           ⚠ {error}
         </div>
       )}
-      <button
-        id="camera-capture-btn"
-        onClick={() => { speak(t("takePhoto")); ref.current?.click(); }}
-        disabled={isLoading}
-        className={`camera-btn ${isLoading ? "" : "scanline-effect"}`}
-      >
-        {/* Corner brackets */}
-        <span className="camera-corner tl" />
-        <span className="camera-corner tr" />
-        <span className="camera-corner bl" />
-        <span className="camera-corner br" />
 
-        {isLoading ? (
-          <>
-            {/* Orbit loader */}
-            <div style={{ position: "relative", width: 48, height: 48 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: "50%",
-                border: "2px solid rgba(0,229,160,0.2)",
-                position: "absolute", inset: 0,
-              }} />
-              <div className="orbit-dot" />
-              <div className="orbit-dot" />
-              <div className="orbit-dot" />
+      {capturedImage && !isLoading ? (
+        <div
+          className="relative rounded-2xl overflow-hidden animate-scale-pop"
+          style={{
+            background: "rgba(15, 23, 20, 0.85)",
+            border: "1.5px solid rgba(0, 229, 160, 0.4)",
+            boxShadow: "0 8px 30px rgba(0, 229, 160, 0.15)",
+            padding: "12px",
+          }}
+        >
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              height: 220,
+              borderRadius: 14,
+              overflow: "hidden",
+              background: "#080c0a",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`data:${capturedImage.mime};base64,${capturedImage.b64}`}
+              alt="Captured e-waste lot"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+            {/* Status badge */}
+            <div
+              style={{
+                position: "absolute",
+                top: 10,
+                left: 10,
+                background: "rgba(0, 229, 160, 0.95)",
+                color: "#05130b",
+                fontSize: "0.75rem",
+                fontWeight: 800,
+                padding: "3px 10px",
+                borderRadius: 20,
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                boxShadow: "0 2px 10px rgba(0,0,0,0.4)",
+              }}
+            >
+              <span>✓</span>
+              <span>{t("photoReady") || "Photo Ready"}</span>
             </div>
-            <span className="text-xl font-bold" style={{ color: "var(--emerald-glow)" }}>
-              {t("analyzing")}
-            </span>
-            <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-              AI is processing your image…
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="camera-icon">📷</span>
-            <span className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-              {t("takePhoto")}
-            </span>
-            <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Tap to scan e-waste
-            </span>
-          </>
-        )}
-      </button>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+            <button
+              type="button"
+              id="retake-photo-btn"
+              onClick={() => { speak(t("takePhoto")); ref.current?.click(); }}
+              className="btn btn-ghost !min-h-0 !py-2.5 !px-4 text-xs font-bold"
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            >
+              <span>📷</span>
+              <span>{t("retakePhoto") || "Change Photo"}</span>
+            </button>
+            {onClearCapture && (
+              <button
+                type="button"
+                id="clear-photo-btn"
+                onClick={onClearCapture}
+                className="btn btn-ghost !min-h-0 !py-2.5 !px-3 text-xs font-bold"
+                style={{
+                  color: "#fca5a5",
+                  borderColor: "rgba(239, 68, 68, 0.3)",
+                  background: "rgba(239, 68, 68, 0.1)",
+                }}
+                title="Remove photo"
+              >
+                🗑
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <button
+          id="camera-capture-btn"
+          onClick={() => { speak(t("takePhoto")); ref.current?.click(); }}
+          disabled={isLoading}
+          className={`camera-btn ${isLoading ? "" : "scanline-effect"}`}
+        >
+          {/* Corner brackets */}
+          <span className="camera-corner tl" />
+          <span className="camera-corner tr" />
+          <span className="camera-corner bl" />
+          <span className="camera-corner br" />
+
+          {isLoading ? (
+            <>
+              {/* Orbit loader */}
+              <div style={{ position: "relative", width: 48, height: 48 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: "50%",
+                  border: "2px solid rgba(0,229,160,0.2)",
+                  position: "absolute", inset: 0,
+                }} />
+                <div className="orbit-dot" />
+                <div className="orbit-dot" />
+                <div className="orbit-dot" />
+              </div>
+              <span className="text-xl font-bold" style={{ color: "var(--emerald-glow)" }}>
+                {t("analyzing")}
+              </span>
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+                AI is processing your lot…
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="camera-icon">📷</span>
+              <span className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+                {t("takePhoto")}
+              </span>
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Tap to take or choose photo
+              </span>
+            </>
+          )}
+        </button>
+      )}
     </div>
   );
 }
