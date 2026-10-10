@@ -51,7 +51,17 @@ function AnimatedBar({ percent }: { percent: number }) {
   );
 }
 
-export default function ResultDisplay({ result, onRetake }: { result: any; onRetake: () => void }) {
+export default function ResultDisplay({
+  result,
+  onRetake,
+  onSync,
+  remainingQueueCount = 0,
+}: {
+  result: any;
+  onRetake: () => void;
+  onSync?: () => void;
+  remainingQueueCount?: number;
+}) {
   const { t, speak } = useLanguage();
   const name = (c: string) => { const v = t("c_" + c); return v === "c_" + c ? c.replace(/_/g, " ") : v; };
 
@@ -68,29 +78,91 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
 
   /* ── OFFLINE ── */
   if (result.type === "offline") {
+    const lot = result.queuedLot;
+    const count = result.queuedCount ?? 1;
     return (
       <div className="card flex flex-col items-center text-center gap-5 animate-scale-pop" style={{ border: "1px solid rgba(251,191,36,0.35)" }}>
-        <div style={{ fontSize: "4rem", animation: "float 3s ease-in-out infinite" }}>📡</div>
+        <div style={{ fontSize: "3.5rem", animation: "float 3s ease-in-out infinite" }}>📡</div>
         <div>
-          <h2 className="text-2xl font-black" style={{ color: "#fbbf24" }}>Saved to queue</h2>
-          <p className="text-sm mt-2 leading-relaxed" style={{ color: "var(--text-muted)" }}>
-            You are currently <strong style={{ color: "#fbbf24" }}>offline</strong>. Your photo has been saved to the on-device queue.
+          <h2 className="text-2xl font-black" style={{ color: "#fbbf24" }}>Saved to Device Queue</h2>
+          <p className="text-sm mt-1.5 leading-relaxed" style={{ color: "var(--text-muted)" }}>
+            You are currently <strong style={{ color: "#fbbf24" }}>offline</strong>. Your lot was safely stored in local memory.
           </p>
         </div>
+
+        {/* Thumbnail & lot metadata preview if available */}
+        {lot?.b64 && (
+          <div style={{
+            position: "relative",
+            width: "100%",
+            maxWidth: 240,
+            borderRadius: 16,
+            overflow: "hidden",
+            border: "1px solid rgba(255,255,255,0.12)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
+          }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`data:${lot.mime || "image/jpeg"};base64,${lot.b64}`}
+              alt="Queued lot preview"
+              style={{ width: "100%", height: 140, objectFit: "cover" }}
+            />
+            {lot.weightKg && (
+              <div style={{
+                position: "absolute",
+                bottom: 8,
+                left: 8,
+                background: "rgba(0,0,0,0.78)",
+                backdropFilter: "blur(4px)",
+                padding: "2px 8px",
+                borderRadius: 8,
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                color: "#fbbf24",
+                border: "1px solid rgba(251,191,36,0.3)"
+              }}>
+                ⚖️ {lot.weightKg} kg
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Queue status badge */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12, padding: "0.6rem 1rem", width: "100%", fontSize: "0.82rem"
+        }}>
+          <span style={{ color: "var(--text-muted)" }}>Total lots waiting in queue</span>
+          <span style={{ fontWeight: 800, color: "#fbbf24", fontSize: "0.95rem" }}>{count}</span>
+        </div>
+
         {/* Auto-sync info pill */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", alignItems: "center", gap: 10,
           background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)",
-          borderRadius: 14, padding: "0.65rem 1rem", width: "100%",
+          borderRadius: 14, padding: "0.75rem 1rem", width: "100%",
         }}>
-          <span style={{ fontSize: "1.3rem" }}>⟳</span>
-          <p style={{ color: "rgba(251,191,36,0.85)", fontSize: "0.78rem", margin: 0, textAlign: "left" }}>
-            <strong>Auto-sync is enabled.</strong> As soon as your connection returns, KabadiAI will automatically analyse and display the result.
+          <span style={{ fontSize: "1.4rem" }}>⟳</span>
+          <p style={{ color: "rgba(251,191,36,0.9)", fontSize: "0.8rem", margin: 0, textAlign: "left", lineHeight: 1.4 }}>
+            <strong>Auto-sync active:</strong> Once your internet connection is restored, KabadiAI will automatically analyse and value your lot.
           </p>
         </div>
-        <button id="offline-retake-btn" onClick={onRetake} className="btn btn-ghost w-full" style={{ borderRadius: 18 }}>
-          📷 Scan another item
-        </button>
+
+        <div className="flex flex-col gap-2 w-full mt-1">
+          {onSync && (
+            <button
+              id="offline-sync-btn"
+              onClick={onSync}
+              className="btn btn-gold w-full !rounded-2xl py-3 font-bold flex items-center justify-center gap-2"
+            >
+              <span>⟳</span> Try Sync Now
+            </button>
+          )}
+          <button id="offline-retake-btn" onClick={onRetake} className="btn btn-ghost w-full !rounded-2xl">
+            📷 Scan another lot
+          </button>
+        </div>
       </div>
     );
   }
@@ -149,6 +221,30 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
   return (
     <div className="flex flex-col gap-4 pb-8 stagger-children">
 
+      {/* Remaining offline queue banner */}
+      {remainingQueueCount > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+          background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)",
+          borderRadius: 16, padding: "0.75rem 1rem",
+        }}>
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: "1.2rem" }}>📦</span>
+            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#fcd34d" }}>
+              {remainingQueueCount} more {remainingQueueCount === 1 ? "lot" : "lots"} in offline queue
+            </span>
+          </div>
+          {onSync && (
+            <button
+              onClick={onSync}
+              className="btn btn-gold !min-h-0 !rounded-xl px-3 py-1.5 text-xs font-bold !w-auto"
+            >
+              ⟳ Sync Next Lot
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Mock banner */}
       {result.mock && (
         <div className="rounded-2xl px-4 py-3 text-center font-extrabold text-sm"
@@ -189,30 +285,7 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
         <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>{t("priceNote")}</p>
       </div>
 
-      {/* Verdict card */}
-      {result.verdict && VERDICT[result.verdict] && (
-        <div className="card"
-          style={{
-            background: VERDICT[result.verdict][1],
-            boxShadow: `0 0 40px ${VERDICT_GLOW[result.verdict]}, 0 8px 32px rgba(0,0,0,0.4)`,
-          }}
-        >
-          <div className="flex items-center gap-4">
-            <span className="text-5xl animate-float">{VERDICT[result.verdict][2]}</span>
-            <p className="text-lg font-bold flex-1" style={{ color: "var(--text-primary)" }}>
-              {t(VERDICT[result.verdict][0])}
-            </p>
-            <button
-              id="verdict-listen-btn"
-              onClick={() => speak(t(VERDICT[result.verdict][0]))}
-              aria-label={t("listen")}
-              className="btn btn-ghost !min-h-0 !w-12 !h-12 !rounded-full !p-0 flex items-center justify-center text-xl"
-            >
-              🔊
-            </button>
-          </div>
-        </div>
-      )}
+
 
       {/* Line items */}
       <div className="card">
@@ -257,12 +330,17 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
         </button>
       </div>
 
-      {/* Nearby recyclers */}
+      {/* Nearby authorized recyclers */}
       {result.recyclers?.length > 0 && (
-        <div>
-          <h3 className="font-bold text-base mb-3" style={{ color: "var(--text-muted)" }}>
-            📍 {t("nearestRecyclers")}
-          </h3>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-base" style={{ color: "var(--text-muted)" }}>
+              🏢 {t("authorizedRecyclers")}
+            </h3>
+            <span className="pill" style={{ borderColor: "rgba(56,189,248,0.4)", color: "#38bdf8" }}>
+              CPCB / SPCB
+            </span>
+          </div>
           <div className="space-y-3 stagger-children">
             {result.recyclers.map((r: any) => (
               <a
@@ -270,15 +348,70 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
                 href={r.directions_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="card !p-4 flex items-center gap-3 no-underline block"
+                className="card !p-4 flex items-center gap-3 no-underline block hover:border-sky-500/50 transition-colors"
                 style={{ textDecoration: "none" }}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-base" style={{ color: "var(--text-primary)" }}>{r.name}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{r.address}</div>
+                  <div className="font-bold text-base flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+                    <span className="truncate">{r.name}</span>
+                  </div>
+                  <div className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-muted)" }}>{r.address}</div>
+                  {r.capacity_mta && (
+                    <div className="text-[11px] mt-1 font-medium" style={{ color: "#38bdf8" }}>
+                      ⚙ {r.capacity_mta} {t("capacityMta")}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-2xl font-black" style={{ color: "#38bdf8" }}>{r.distance_km}</div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>{t("kmAway")}</div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Drop-off collection points (Ask First) */}
+      {result.collection_points?.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-base" style={{ color: "#fbbf24" }}>
+              📍 {t("dropOffPoints")}
+            </h3>
+            <span className="pill" style={{ borderColor: "rgba(251,191,36,0.4)", color: "#fbbf24" }}>
+              EPR Drop-off
+            </span>
+          </div>
+          <div className="rounded-xl p-3 text-xs leading-relaxed" style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", color: "#fde68a" }}>
+            ℹ {t("dropOffNotice")}
+          </div>
+          <div className="space-y-3 stagger-children">
+            {result.collection_points.map((cp: any) => (
+              <a
+                key={cp.id}
+                href={cp.directions_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="card !p-4 flex items-center gap-3 no-underline block hover:border-amber-400/50 transition-colors"
+                style={{ textDecoration: "none", border: "1px solid rgba(251,191,36,0.2)" }}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-base" style={{ color: "var(--text-primary)" }}>{cp.name}</div>
+                  <div className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-muted)" }}>{cp.address}</div>
+                  {cp.toll_free && (
+                    <div className="text-xs mt-1 font-semibold flex items-center gap-1" style={{ color: "#34d399" }}>
+                      📞 {t("tollFree")}: {cp.toll_free}
+                    </div>
+                  )}
+                  {cp.notes && (
+                    <div className="text-[11px] mt-1 italic" style={{ color: "var(--text-muted)" }}>
+                      {cp.notes}
+                    </div>
+                  )}
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-2xl font-black" style={{ color: "#fbbf24" }}>{cp.distance_km}</div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>{t("kmAway")}</div>
                 </div>
               </a>

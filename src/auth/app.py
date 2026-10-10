@@ -77,18 +77,12 @@ def _verify_pw(password: str, stored: str) -> bool:
 
 # ─── Google token verification ────────────────────────────────────────────────
 
-def _verify_google_token(id_token: str) -> dict | None:
-    """Verify a Google ID token via Google's public tokeninfo endpoint."""
+def _verify_google_token(access_token: str) -> dict | None:
+    """Verify a Google access token via Google's userinfo endpoint."""
     try:
-        url = f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
-        with urllib.request.urlopen(url, timeout=8) as r:
+        req = urllib.request.Request("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": f"Bearer {access_token}"})
+        with urllib.request.urlopen(req, timeout=8) as r:
             info = json.load(r)
-        # Validate audience (client_id) if configured
-        if GOOGLE_AUD and info.get("aud") != GOOGLE_AUD:
-            print("Google token: wrong aud", info.get("aud"))
-            return None
-        if int(info.get("exp", 0)) < time.time():
-            return None
         return info
     except Exception as e:
         print("Google token verify error:", repr(e))

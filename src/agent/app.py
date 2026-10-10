@@ -92,10 +92,24 @@ def _text_bedrock(img, fmt, timeout=15):
 def _text_gemini(img, mime, timeout=18):
     body = {"contents": [{"parts": [{"inline_data": {"mime_type": mime, "data": base64.b64encode(img).decode()}}, {"text": PROMPT}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0, "maxOutputTokens": 1500}}
-    req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-                                 json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY})
-    with urllib.request.urlopen(req, timeout=max(3, timeout)) as r:
-        return json.load(r)["candidates"][0]["content"]["parts"][0]["text"]
+    last_err = None
+    for model_name in (GEMINI_MODEL, "gemini-flash-latest"):
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent",
+                                             json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY})
+                with urllib.request.urlopen(req, timeout=max(3, timeout)) as r:
+                    return json.load(r)["candidates"][0]["content"]["parts"][0]["text"]
+            except urllib.error.HTTPError as e:
+                last_err = e
+                if e.code in (503, 429, 500) and attempt == 0:
+                    time.sleep(0.6)
+                    continue
+                break
+            except Exception as e:
+                last_err = e
+                break
+    raise last_err or RuntimeError("Gemini failed")
 
 def _scan_with_providers(img, fmt):
     """Tries each provider in PROVIDER_ORDER; the first valid answer wins. Records which one answered."""
@@ -150,6 +164,12 @@ def _clarify():
 
 def _price():
     rows, lo_t, hi_t = [], 0.0, 0.0
+    user_wt = CTX.get("user_weight_g")
+    if user_wt is not None and user_wt > 0:
+        # distribute user-provided weight proportionally across items by AI-estimated weight
+        ai_total = sum(it["est_weight_g"] for it in CTX["scan"]["items"]) or 1
+        for it in CTX["scan"]["items"]:
+            it["est_weight_g"] = round(user_wt * it["est_weight_g"] / ai_total)
     for it in CTX["scan"]["items"]:
         row = _price_row(it["component"])
         basis = str(row.get("basis", "none"))
@@ -180,25 +200,57 @@ def _safety():
 
 def _recyclers():
     lat, lon = CTX.get("lat"), CTX.get("lon")
-    out = []
+    recyclers_out = []
+    points_out = []
     if lat is not None and lon is not None:
         for r in _all_recyclers():
-            d = _km(lat, lon, float(r["lat"]), float(r["lon"]))
-            out.append({"id": r["id"], "name": r["name"], "address": r["address"], "city": r["city"],
-                        "distance_km": round(d, 2),
-                        "directions_url": f"https://maps.google.com/maps?daddr={r['lat']},{r['lon']}&saddr={lat},{lon}"})
-        out.sort(key=lambda x: x["distance_km"])
-    CTX["recyclers"] = out[:5]
-    return {"recyclers_found": len(CTX["recyclers"])}
+            if r.get("lat") is None or r.get("lon") is None:
+                continue
+            try:
+                rlat = float(r["lat"])
+                rlon = float(r["lon"])
+            except (ValueError, TypeError):
+                continue
+            d = _km(lat, lon, rlat, rlon)
+            kind = r.get("kind", "recycler")
+            item = {
+                "id": r.get("id"),
+                "name": r.get("name"),
+                "address": r.get("address"),
+                "city": r.get("city"),
+                "state": r.get("state"),
+                "kind": kind,
+                "distance_km": round(d, 2),
+                "directions_url": f"https://maps.google.com/maps?daddr={rlat},{rlon}&saddr={lat},{lon}"
+            }
+            if kind == "collection_point":
+                if r.get("toll_free"):
+                    item["toll_free"] = str(r["toll_free"])
+                if r.get("notes"):
+                    item["notes"] = str(r["notes"])
+                points_out.append(item)
+            else:
+                if r.get("capacity_mta") is not None:
+                    try:
+                        item["capacity_mta"] = float(r["capacity_mta"])
+                    except (ValueError, TypeError):
+                        pass
+                recyclers_out.append(item)
+
+        recyclers_out.sort(key=lambda x: x["distance_km"])
+        points_out.sort(key=lambda x: x["distance_km"])
+
+    CTX["recyclers"] = recyclers_out[:4]
+    CTX["collection_points"] = points_out[:4]
+    return {"recyclers_found": len(CTX["recyclers"]), "collection_points_found": len(CTX["collection_points"])}
 
 def _finish():
     lo, hi = CTX["totals"]
     res = {"type": "result", "scan": CTX["scan"], "line_items": CTX["line_items"], "total_min_inr": lo,
            "total_max_inr": hi, "hazard_messages": CTX["hazards"], "recyclers": CTX["recyclers"],
-           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER, "provider": CTX.get("provider"), "unpriced_items": CTX.get("unpriced", 0)}
-    offer = CTX.get("offer")
-    if offer is not None and hi > 0:
-        res["verdict"] = "low" if offer < lo else "high" if offer > hi else "fair"
+           "collection_points": CTX.get("collection_points", []),
+           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER, "provider": CTX.get("provider"), "unpriced_items": CTX.get("unpriced", 0),
+           "user_weight_provided": CTX.get("user_weight_g") is not None}
     CTX["result"] = res
     return "Result assembled."
 
@@ -289,9 +341,9 @@ def handler(event, context):
         lon = float(b["lon"]) if b.get("lon") is not None else None
         if lat is not None and not (-90 <= lat <= 90 and -180 <= (lon if lon is not None else 0) <= 180):
             return _json(400, {"error": "bad coordinates"})
-        offer = float(b["dealer_offer_inr"]) if b.get("dealer_offer_inr") is not None else None
-        if offer is not None and offer < 0: return _json(400, {"error": "bad offer"})
-        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "en"))[:5], "no_save": b.get("no_save") is True,
+        user_wt = int(b["user_weight_g"]) if b.get("user_weight_g") is not None else None
+        if user_wt is not None and user_wt < 0: return _json(400, {"error": "bad weight"})
+        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "user_weight_g": user_wt, "lang": str(b.get("language", "en"))[:5], "no_save": b.get("no_save") is True,
                "deadline": time.time() + (context.get_remaining_time_in_millis() / 1000 if context else 29) - 5}
     except Exception:
         return _json(400, {"error": "bad request"})
