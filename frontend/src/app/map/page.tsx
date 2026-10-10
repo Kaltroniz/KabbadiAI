@@ -52,6 +52,8 @@ function MapPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [showCenters, setShowCenters] = useState(true);
+  const [showHotspots, setShowHotspots] = useState(true);
   useEffect(() => {
     setMounted(true);
 
@@ -83,7 +85,6 @@ function MapPage() {
 
   const maxLots = Math.max(...hotspots.map(h => h.lot_count), 1);
   const totalHazardZones = hotspots.filter(h => h.has_hazard).length;
-  const totalItems = hotspots.reduce((s, h) => s + h.item_count, 0);
 
   const markerRadius = (lot_count: number) => Math.max(8, Math.min(32, 8 + (lot_count / maxLots) * 24));
 
@@ -102,8 +103,8 @@ function MapPage() {
           <div className="app-logo">
             <div className="logo-icon" style={{ fontSize: 20 }}>🗺️</div>
             <div>
-              <h1 className="text-lg font-black gradient-text leading-none">E-Waste Hotspot Map</h1>
-              <p className="text-xs leading-none mt-0.5" style={{ color: "var(--text-muted)" }}>Real-time density from scanned lots</p>
+              <h1 className="text-lg font-black gradient-text leading-none">E-Waste Map & Centers</h1>
+              <p className="text-xs leading-none mt-0.5" style={{ color: "var(--text-muted)" }}>Hotspots & 262 Verified Collection Points</p>
             </div>
           </div>
           <a
@@ -115,25 +116,79 @@ function MapPage() {
         </header>
 
         {/* Stat pills */}
-        <div style={{ display: "flex", gap: 10, marginBottom: "1.25rem" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: "1rem" }}>
           <StatPill label="Lots Scanned" value={totalLots} color="#00e5a0" />
-          <StatPill label="Items Tracked" value={totalItems} color="#6ee7b7" />
           <StatPill label="Hazard Zones" value={totalHazardZones} color="#f87171" />
+          <StatPill label="Centers Marked" value={262} color="#fbbf24" />
+        </div>
+
+        {/* Layer Filters */}
+        <div style={{ display: "flex", gap: 8, marginBottom: "0.85rem" }}>
+          <button
+            onClick={() => setShowCenters(!showCenters)}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "7px 10px",
+              borderRadius: 12,
+              fontSize: "0.78rem",
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: "all 0.2s",
+              background: showCenters ? "rgba(245,158,11,0.18)" : "rgba(255,255,255,0.04)",
+              border: `1.5px solid ${showCenters ? "rgba(245,158,11,0.45)" : "rgba(255,255,255,0.08)"}`,
+              color: showCenters ? "#fbbf24" : "var(--text-muted)",
+            }}
+          >
+            <span>📍</span>
+            <span>Centers (262)</span>
+            <span style={{ fontSize: "10px", opacity: 0.8 }}>{showCenters ? "✓" : ""}</span>
+          </button>
+          <button
+            onClick={() => setShowHotspots(!showHotspots)}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "7px 10px",
+              borderRadius: 12,
+              fontSize: "0.78rem",
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: "all 0.2s",
+              background: showHotspots ? "rgba(0,229,160,0.18)" : "rgba(255,255,255,0.04)",
+              border: `1.5px solid ${showHotspots ? "rgba(0,229,160,0.45)" : "rgba(255,255,255,0.08)"}`,
+              color: showHotspots ? "#00e5a0" : "var(--text-muted)",
+            }}
+          >
+            <span>🔥</span>
+            <span>Hotspots</span>
+            <span style={{ fontSize: "10px", opacity: 0.8 }}>{showHotspots ? "✓" : ""}</span>
+          </button>
         </div>
 
         {/* Legend */}
-        <div style={{ display: "flex", gap: 16, marginBottom: "0.75rem", paddingLeft: 4 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: "0.75rem", paddingLeft: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div className="center-marker-badge center-marker-point" style={{ width: 14, height: 14, fontSize: 8 }}>📍</div>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>Drop-off Point</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div className="center-marker-badge center-marker-recycler" style={{ width: 14, height: 14, fontSize: 8 }}>🏢</div>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>Recycler</span>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#f87171", boxShadow: "0 0 8px rgba(248,113,113,0.6)" }} />
-            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>Hazardous zone</span>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>Hazard Zone</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#00e5a0", boxShadow: "0 0 8px rgba(0,229,160,0.6)" }} />
-            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>Safe zone</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 20, height: 8, borderRadius: 4, background: "linear-gradient(90deg,#6ee7b7,#00e5a0,#00e5a0,#f87171)" }} />
-            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>Size = lot volume</span>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>Safe Zone</span>
           </div>
         </div>
 
@@ -143,7 +198,7 @@ function MapPage() {
           overflow: "hidden",
           border: "1px solid rgba(255,255,255,0.1)",
           boxShadow: "0 0 40px rgba(0,229,160,0.12), 0 8px 32px rgba(0,0,0,0.5)",
-          height: 420,
+          height: 440,
           position: "relative",
         }}>
           {loading ? (
@@ -156,7 +211,12 @@ function MapPage() {
               <p style={{ color: "var(--text-muted)", marginTop: 16, fontSize: "0.9rem" }}>Loading map data…</p>
             </div>
           ) : (
-            <HotspotMap hotspots={hotspots} markerRadius={markerRadius} />
+            <HotspotMap
+              hotspots={hotspots}
+              markerRadius={markerRadius}
+              showCenters={showCenters}
+              showHotspots={showHotspots}
+            />
           )}
         </div>
 
