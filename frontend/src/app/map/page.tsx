@@ -1,16 +1,25 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import AuthGuard from "@/components/AuthGuard";
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
-// Leaflet must be loaded client-side only (no SSR)
-const MapContainer   = dynamic(() => import("react-leaflet").then(m => m.MapContainer),   { ssr: false });
-const TileLayer      = dynamic(() => import("react-leaflet").then(m => m.TileLayer),      { ssr: false });
-const CircleMarker   = dynamic(() => import("react-leaflet").then(m => m.CircleMarker),   { ssr: false });
-const Popup          = dynamic(() => import("react-leaflet").then(m => m.Popup),          { ssr: false });
+// Leaflet must be loaded client-side only (no SSR) with default-exported component
+const HotspotMap = dynamic(() => import("@/components/HotspotMap"), {
+  ssr: false,
+  loading: () => (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(15,25,20,0.9)" }}>
+      <div style={{ position: "relative", width: 48, height: 48 }}>
+        <div className="orbit-dot" />
+        <div className="orbit-dot" />
+        <div className="orbit-dot" />
+      </div>
+      <p style={{ color: "var(--text-muted)", marginTop: 16, fontSize: "0.9rem" }}>Loading map data…</p>
+    </div>
+  ),
+});
 
 interface Hotspot {
   lat: number;
@@ -43,24 +52,8 @@ function MapPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const leafletFixed = useRef(false);
-
   useEffect(() => {
     setMounted(true);
-
-    // Fix Leaflet default icon path in Next.js
-    if (!leafletFixed.current && typeof window !== "undefined") {
-      leafletFixed.current = true;
-      import("leaflet").then((L) => {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        delete (L.Icon.Default.prototype as any)._getIconUrl;
-        L.Icon.Default.mergeOptions({
-          iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
-          iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
-          shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
-        });
-      });
-    }
 
     const fetchHotspots = async () => {
       try {
@@ -163,44 +156,7 @@ function MapPage() {
               <p style={{ color: "var(--text-muted)", marginTop: 16, fontSize: "0.9rem" }}>Loading map data…</p>
             </div>
           ) : (
-            <MapContainer
-              center={hotspots.length ? [hotspots[0].lat, hotspots[0].lon] : [28.6, 77.2]}
-              zoom={11}
-              style={{ width: "100%", height: "100%" }}
-              scrollWheelZoom={true}
-            >
-              <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-              />
-              {hotspots.map((h, i) => (
-                <CircleMarker
-                  key={i}
-                  center={[h.lat, h.lon]}
-                  radius={markerRadius(h.lot_count)}
-                  pathOptions={{
-                    fillColor: h.has_hazard ? "#f87171" : "#00e5a0",
-                    fillOpacity: 0.82,
-                    color: h.has_hazard ? "#dc2626" : "#047857",
-                    weight: 2,
-                  }}
-                >
-                  <Popup>
-                    <div style={{ fontFamily: "Inter,sans-serif", minWidth: 160 }}>
-                      <strong style={{ fontSize: "0.95rem", display: "block", marginBottom: 6 }}>
-                        {h.has_hazard ? "⚠️ Hazardous Zone" : "✅ Clean Zone"}
-                      </strong>
-                      <div style={{ color: "#555", fontSize: "0.82rem", lineHeight: 1.7 }}>
-                        <div>📦 <b>{h.lot_count}</b> lots scanned</div>
-                        <div>🔩 <b>{h.item_count}</b> items identified</div>
-                        {h.has_hazard && <div style={{ color: "#dc2626" }}>☣️ <b>{h.hazard_count}</b> hazard flags</div>}
-                        <div style={{ marginTop: 6, color: "#888", fontSize: "0.75rem" }}>{h.lat.toFixed(2)}°N, {h.lon.toFixed(2)}°E</div>
-                      </div>
-                    </div>
-                  </Popup>
-                </CircleMarker>
-              ))}
-            </MapContainer>
+            <HotspotMap hotspots={hotspots} markerRadius={markerRadius} />
           )}
         </div>
 
