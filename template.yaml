@@ -13,6 +13,7 @@ Parameters:
     Description: Set to "1" to return fixed mock data without calling Bedrock. Remove before final demo.
   GeminiApiKey:
     Type: String
+    NoEcho: true
     Default: ""
     Description: API Key for Google Gemini.
   GeminiModel:
@@ -77,81 +78,7 @@ Resources:
           KeyType: HASH
 
   # ── Lambda functions ───────────────────────────────────────────────────────
-  ScanFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: src/scan/
-      Handler: app.handler
-      Environment:
-        Variables:
-          BEDROCK_MODEL_ID: !Ref BedrockModelId
-          MOCK_ANALYSIS: !Ref MockAnalysis
-          PRICES_TABLE: !Ref PricesTable
-          RECYCLERS_TABLE: !Ref RecyclersTable
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action: [bedrock:InvokeModel]
-              Resource: '*'
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-                - dynamodb:Query
-                - dynamodb:Scan
-              Resource:
-                - !GetAtt PricesTable.Arn
-                - !GetAtt RecyclersTable.Arn
-      Events:
-        Scan:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref Api
-            Path: /scan
-            Method: POST
 
-  PriceFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: src/price/
-      Handler: app.handler
-      Environment:
-        Variables:
-          PRICES_TABLE: !Ref PricesTable
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:GetItem
-              Resource: !GetAtt PricesTable.Arn
-      Events:
-        Price:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref Api
-            Path: /price
-            Method: POST
-
-  RecyclersFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: src/recyclers/
-      Handler: app.handler
-      Environment:
-        Variables:
-          RECYCLERS_TABLE: !Ref RecyclersTable
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:Scan
-              Resource: !GetAtt RecyclersTable.Arn
-      Events:
-        Recyclers:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref Api
-            Path: /recyclers
-            Method: GET
 
   AgentFunction:
     Type: AWS::Serverless::Function

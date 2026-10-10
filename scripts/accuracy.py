@@ -61,7 +61,8 @@ def run_accuracy(photos_dir, labels_csv):
         payload = {
             "image_b64": img_b64,
             "media_type": mime,
-            "language": "en"
+            "language": "en",
+            "no_save": True
         }
         
         req = urllib.request.Request(api, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})

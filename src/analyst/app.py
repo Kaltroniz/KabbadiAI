@@ -1,11 +1,11 @@
 """POST /analyst {question, language}. A Gemini function-calling loop over the anonymous lot ledger.
 Every number comes from a tool; the model only phrases the answer. The tool trace is returned so the chaining is visible.
 Mock lots are ignored. No personal data exists in the ledger (location is rounded to ~1 km)."""
-import json, os, urllib.request
+import json, os, time, urllib.request
 import boto3
 
 TABLE, KEY = os.environ.get("LOTS_TABLE", ""), os.environ.get("GEMINI_API_KEY", "")
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 MAX_ROUNDS = 4
 _t = None
 
@@ -58,12 +58,12 @@ DECLS = [
 SYSTEM = ("You help a recycler or city planner read an anonymous e-waste lot ledger. Use the tools for every number; never invent figures. "
           "Weights are estimated from photos and the ledger is a small early sample, so say so. Be brief and practical.")
 
-def _gemini(contents):
+def _gemini(contents, timeout=20):
     body = {"systemInstruction": {"parts": [{"text": SYSTEM}]}, "contents": contents,
             "tools": [{"functionDeclarations": DECLS}], "generationConfig": {"temperature": 0}}
     req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
                                  json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": KEY})
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with urllib.request.urlopen(req, timeout=max(3, timeout)) as r:
         return json.load(r)["candidates"][0]["content"]
 
 def _j(status, body):
@@ -79,10 +79,13 @@ def handler(event, context):
         return _j(400, {"error": "bad request"})
     if not lots:
         return _j(200, {"answer": "No real scans are saved yet, so there is nothing to analyse.", "tools_used": [], "lots_considered": 0})
+    deadline = time.time() + (context.get_remaining_time_in_millis() / 1000 if context else 29) - 4
     contents, trace = [{"role": "user", "parts": [{"text": f"{q}\n(Reply in language code: {lang})"}]}], []
     try:
         for _ in range(MAX_ROUNDS):
-            msg = _gemini(contents)
+            left = deadline - time.time()
+            if left < 5: break  # stop before API Gateway's 30 s limit and answer in a controlled way
+            msg = _gemini(contents, min(20, left - 1))
             calls = [p["functionCall"] for p in msg.get("parts", []) if "functionCall" in p]
             if not calls:
                 return _j(200, {"answer": "".join(p.get("text", "") for p in msg.get("parts", [])), "tools_used": trace, "lots_considered": len(lots)})

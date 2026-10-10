@@ -18,18 +18,7 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
     <button onClick={() => speak(text)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-white/90 text-stone-900 text-xl font-bold">🔊 {t("listen")}</button>
   );
 
-  if (result.type === "clarify" || result.type === "error" || result.type === "offline") {
-    if (result.type === "offline") {
-      return (
-        <div className="card flex flex-col items-center text-center gap-4 animate-fade-in bg-stone-100">
-          <div className="text-6xl">📡</div>
-          <h2 className="text-2xl font-black text-amber-600">You are offline</h2>
-          <p className="text-lg font-medium">Your photo has been saved to the device. KabadiAI needs internet to run the analysis.</p>
-          <p className="text-stone-500">Connect to the internet to analyze your queued lots.</p>
-          <button onClick={onRetake} className="btn bg-stone-800 text-white mt-2">📷 Take another photo</button>
-        </div>
-      );
-    }
+  if (result.type === "clarify" || result.type === "error") {
     const msg = t(result.type === "error" ? "scanFailed" : "errorLowConfidence");
     return (
       <div className="card flex flex-col items-center text-center gap-4 animate-fade-in">
@@ -75,6 +64,7 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
         <div className="text-stone-500 font-semibold">{t("indicativeValue")}</div>
         <div className="text-5xl font-black text-emerald-800 my-2">₹{lo}–{hi}</div>
         <button onClick={() => speak(summary)} aria-label={t("listen")} className="h-14 px-5 rounded-full bg-stone-200 text-xl font-bold">🔊 {t("listen")}</button>
+        {result.unpriced_items > 0 && <p className="text-sm text-amber-700 mt-3">⚠ {t("excludesUnpriced")} {result.unpriced_items}</p>}
         <p className="text-xs text-stone-500 mt-3">{t("priceNote")}</p>
       </div>
 
@@ -121,6 +111,7 @@ export default function ResultDisplay({ result, onRetake }: { result: any; onRet
         </div>
       )}
       <p className="text-xs text-stone-500 text-center">{t("disclaimer")}</p>
+      {result.provider && <p className="text-[10px] text-stone-400 text-center">AI: {result.provider}</p>}
     </div>
   );
 }

@@ -3,7 +3,7 @@ Facts (prices, hazard text, recyclers) come from tables and fixed text, never fr
 The model only reads the photo. Tools take no data arguments, so the agent cannot corrupt numbers.
 AGENT_MODE=1 lets a Strands agent choose the order of steps; default (0) runs the same steps
 deterministically. API Gateway HTTP APIs cut requests at 30 s, so measure agent latency first."""
-import base64, json, math, os, re, urllib.request, uuid
+import base64, json, math, os, re, time, urllib.request, uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import boto3
@@ -16,7 +16,7 @@ RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
 LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
 PROVIDER_ORDER = [x.strip() for x in os.environ.get("PROVIDER_ORDER", "gemini,bedrock").split(",") if x.strip()]
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")  # confirm the exact id in Google AI Studio
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")  # confirm the exact id in Google AI Studio
 MIN_CONF, MAX_BYTES = 70, 4_000_000
 MEDIA = {"image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp"}
 COMPONENTS = {"alkaline_battery", "aluminium_heatsink", "cfl_or_tube_light", "charger_adapter", "copper_scrap", "copper_wire", "crt_monitor_or_tv", "desktop_cpu", "hard_drive", "laptop", "lcd_led_monitor_or_tv", "lead_acid_battery", "li_ion_battery", "microwave", "mobile_pcb", "mobile_phone", "motherboard", "other", "power_supply", "printer", "ram_stick", "refrigerator", "remote", "router_or_modem", "split_ac", "ups_unit", "washing_machine", "window_ac"}
@@ -40,8 +40,8 @@ HAZARD_MESSAGES["lead_acid_battery"] = {"en": "Lead-acid battery: contains acid 
     "hi": "लेड-एसिड बैटरी: इसमें तेज़ाब और सीसा है। इसे सीधा रखें। खोलें नहीं, जलाएं नहीं, तेज़ाब न निकालें।"}
 HAZARD_MESSAGES["refrigerant_gas"] = {"en": "Contains refrigerant gas. Do not cut or break the pipes or compressor.",
     "hi": "इसमें रेफ्रिजरेंट गैस है। पाइप या कंप्रेसर को न काटें और न तोड़ें।"}
-GENERAL = {"en": "WARNING: AI photo analysis cannot detect hidden hazards. If unsure, treat all e-waste as hazardous. Never burn or crush it.",
-           "hi": "चेतावनी: AI फोटो विश्लेषण छिपे हुए खतरों का पता नहीं लगा सकता। यदि अनिश्चित हैं, तो सभी ई-कचरे को खतरनाक मानें। इसे कभी न जलाएं या कुचलें।"}
+GENERAL = {"en": "Never burn circuit boards or use acid to extract metal.",
+           "hi": "सर्किट बोर्ड कभी न जलाएं और धातु निकालने के लिए तेज़ाब का इस्तेमाल न करें।"}
 
 PROMPT = f"""You assess photographed discarded electronics in India. Return ONLY one JSON object:
 {{"items":[{{"component":<one of {sorted(COMPONENTS)}>,"condition":<one of {sorted(CONDITIONS)}>,"count":<int>,"est_weight_g":<int, TOTAL weight of all units in this line>}}],
@@ -52,7 +52,7 @@ For whole devices (laptop, desktop_cpu, mobile_phone, hard_drive, power_supply, 
 MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "count": 1, "est_weight_g": 320},
                        {"component": "copper_wire", "condition": "intact", "count": 3, "est_weight_g": 270},
                        {"component": "li_ion_battery", "condition": "swollen", "count": 1, "est_weight_g": 150}],
-             "hazards": ["swollen_battery"], "confidence": 85, "notes": "MOCK DATA, Bedrock not called."}
+             "hazards": [], "confidence": 85, "notes": "MOCK DATA, Bedrock not called."}
 
 _ddb = None
 def _table(name):
@@ -82,31 +82,35 @@ def _clean(raw):
     return {"items": items, "hazards": [h for h in raw.get("hazards", []) if h in HAZARDS],
             "confidence": max(0, min(100, int(raw.get("confidence", 0) or 0))), "notes": str(raw.get("notes", ""))[:300]}
 
-def _text_bedrock(img, fmt):
+def _text_bedrock(img, fmt, timeout=15):
     from botocore.config import Config
-    client = boto3.client("bedrock-runtime", config=Config(read_timeout=15, connect_timeout=5, retries={"max_attempts": 1}))
+    client = boto3.client("bedrock-runtime", config=Config(read_timeout=max(3, int(timeout)), connect_timeout=5, retries={"max_attempts": 1}))
     r = client.converse(modelId=MODEL_ID, messages=[{"role": "user", "content": [
         {"image": {"format": fmt, "source": {"bytes": img}}}, {"text": PROMPT}]}], inferenceConfig={"maxTokens": 1000})
     return r["output"]["message"]["content"][0]["text"]
 
-def _text_gemini(img, mime):
+def _text_gemini(img, mime, timeout=18):
     body = {"contents": [{"parts": [{"inline_data": {"mime_type": mime, "data": base64.b64encode(img).decode()}}, {"text": PROMPT}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0, "maxOutputTokens": 1500}}
     req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
                                  json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY})
-    with urllib.request.urlopen(req, timeout=18) as r:
+    with urllib.request.urlopen(req, timeout=max(3, timeout)) as r:
         return json.load(r)["candidates"][0]["content"]["parts"][0]["text"]
 
 def _scan_with_providers(img, fmt):
     """Tries each provider in PROVIDER_ORDER; the first valid answer wins. Records which one answered."""
     errors = []
     for prov in PROVIDER_ORDER:
+        left = CTX.get("deadline", time.time() + 24) - time.time()
+        if left < 4:  # not enough time for another attempt: fail in a controlled way before Lambda is killed
+            errors.append(f"{prov}: skipped, out of time")
+            break
         try:
             if prov == "gemini":
                 if not GEMINI_KEY: raise RuntimeError("no gemini key set")
-                text = _text_gemini(img, "image/" + fmt)
+                text = _text_gemini(img, "image/" + fmt, min(18, left - 1))
             elif prov == "bedrock":
-                text = _text_bedrock(img, fmt)
+                text = _text_bedrock(img, fmt, min(15, left - 1))
             else:
                 continue
             m = re.search(r"\{.*\}", text, re.S)
@@ -164,6 +168,7 @@ def _price():
                      "priced": priced, "basis": basis, "confidence": str(row.get("confidence", "")),
                      "source": str(row.get("source", "")), "checked_date": str(row.get("checked_date", "")),
                      "sources": [{"name": str(x.get("name", "")), "value": str(x.get("value", "")), "date": str(x.get("date", ""))} for x in row.get("sources", [])]})
+    CTX["unpriced"] = sum(1 for r in rows if not r["priced"] and not r["hazardous"])
     CTX["line_items"], CTX["totals"] = rows, (round(lo_t, 2), round(hi_t, 2))
     return {"total_min_inr": CTX["totals"][0], "total_max_inr": CTX["totals"][1]}
 
@@ -190,7 +195,7 @@ def _finish():
     lo, hi = CTX["totals"]
     res = {"type": "result", "scan": CTX["scan"], "line_items": CTX["line_items"], "total_min_inr": lo,
            "total_max_inr": hi, "hazard_messages": CTX["hazards"], "recyclers": CTX["recyclers"],
-           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER, "provider": CTX.get("provider")}
+           "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER, "provider": CTX.get("provider"), "unpriced_items": CTX.get("unpriced", 0)}
     offer = CTX.get("offer")
     if offer is not None and hi > 0:
         res["verdict"] = "low" if offer < lo else "high" if offer > hi else "fair"
@@ -199,7 +204,7 @@ def _finish():
 
 def _save_lot(res):
     """Store an anonymous lot record (no names or numbers; location rounded to ~1 km). Never breaks the response."""
-    if not LOTS_TABLE or res.get("type") != "result":
+    if not LOTS_TABLE or CTX.get("no_save") or res.get("type") != "result":
         return None
     lat, lon = CTX.get("lat"), CTX.get("lon")
     lot = {"id": uuid.uuid4().hex[:10], "created_at": datetime.now(timezone.utc).isoformat(), "status": "scanned",
@@ -286,7 +291,8 @@ def handler(event, context):
             return _json(400, {"error": "bad coordinates"})
         offer = float(b["dealer_offer_inr"]) if b.get("dealer_offer_inr") is not None else None
         if offer is not None and offer < 0: return _json(400, {"error": "bad offer"})
-        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "en"))[:5]}
+        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "offer": offer, "lang": str(b.get("language", "en"))[:5], "no_save": b.get("no_save") is True,
+               "deadline": time.time() + (context.get_remaining_time_in_millis() / 1000 if context else 29) - 5}
     except Exception:
         return _json(400, {"error": "bad request"})
     try:
@@ -302,6 +308,4 @@ def handler(event, context):
         return _json(200, res)
     except Exception as e:
         print("agent error:", repr(e))
-        if "timeout" in str(e).lower() or "read operation timed out" in str(e).lower():
-            return _json(504, {"error": "analysis timed out due to high load, please try again"})
         return _json(502, {"error": "analysis failed"})

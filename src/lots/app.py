@@ -1,75 +1,46 @@
-import json, os, urllib.request
-import boto3
+"""GET /stats: anonymous aggregates for the insights page. Mock lots are excluded. No personal data exists in the ledger
+(location rounded to ~1 km). Scan is paginated; fine at hackathon scale."""
+import json, os
 from datetime import datetime, timezone
+from decimal import Decimal
+import boto3
 
 TABLE = os.environ.get("LOTS_TABLE", "")
 _t = None
 
-def _lots():
+def _all():
     global _t
-    if not _t:
-        _t = boto3.resource("dynamodb").Table(TABLE)
+    _t = _t or boto3.resource("dynamodb").Table(TABLE)
     items, kw = [], {}
     while True:
         r = _t.scan(**kw)
         items += r.get("Items", [])
-        if "LastEvaluatedKey" not in r:
-            break
+        if "LastEvaluatedKey" not in r: return items
         kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
-    return [l for l in items if not l.get("mock")]
 
-def _cells(lots):
-    cells = {}
-    for l in lots:
-        if l.get("cell_lat") is None:
-            continue
-        k = (float(l["cell_lat"]), float(l["cell_lon"]))
-        c = cells.setdefault(k, {"lat": k[0], "lon": k[1], "lots": 0, "hazard_lots": 0, "kg": {}})
-        c["lots"] += 1
-        c["hazard_lots"] += 1 if l.get("hazards") else 0
+def _num(o):
+    if isinstance(o, Decimal): return int(o) if o % 1 == 0 else float(o)
+    raise TypeError
+
+def compute_stats(lots):
+    real = [l for l in lots if not l.get("mock")]
+    grams, hazards, cells = {}, {}, {}
+    for l in real:
         for it in l.get("items", []):
-            c["kg"][it["component"]] = c["kg"].get(it["component"], 0) + float(it.get("est_weight_g", 0)) / 1000
-    return list(cells.values())
-
-def _j(status, body):
-    return {"statusCode": status, "headers": {"content-type": "application/json"}, "body": json.dumps(body)}
+            grams[it["component"]] = grams.get(it["component"], 0) + float(it.get("est_weight_g", 0))
+        for h in l.get("hazards", []):
+            hazards[h] = hazards.get(h, 0) + 1
+        if l.get("cell_lat") is not None:
+            k = (float(l["cell_lat"]), float(l["cell_lon"]))
+            c = cells.setdefault(k, {"lat": k[0], "lon": k[1], "lots": 0, "hazard_lots": 0, "value_min": 0.0, "value_max": 0.0})
+            c["lots"] += 1; c["hazard_lots"] += 1 if l.get("hazards") else 0
+            c["value_min"] += float(l.get("total_min_inr", 0)); c["value_max"] += float(l.get("total_max_inr", 0))
+    return {"lots": len(real), "weight_kg_by_component": {k: round(v / 1000, 2) for k, v in grams.items()},
+            "hazard_counts": hazards, "cells": list(cells.values()), "generated_at": datetime.now(timezone.utc).isoformat()}
 
 def handler(event, context):
     try:
-        path = event.get("rawPath", "")
-        if path.endswith("/stats"):
-            lots = _lots()
-            kg, hz = {}, {}
-            for l in lots:
-                for it in l.get("items", []):
-                    kg[it["component"]] = kg.get(it["component"], 0) + float(it.get("est_weight_g", 0)) / 1000
-                for h in l.get("hazards", []):
-                    hz[h] = hz.get(h, 0) + 1
-            
-            delivered = sum(1 for l in lots if l.get("status") == "delivered")
-            
-            return _j(200, {
-                "lots": len(lots),
-                "delivered": delivered,
-                "weight_kg_by_component": {k: round(v, 2) for k, v in kg.items()},
-                "hazard_counts": hz,
-                "cells": _cells(lots),
-                "generated_at": datetime.now(timezone.utc).isoformat()
-            })
-        
-        # GET /lots/{id}
-        parts = path.split("/")
-        if len(parts) >= 3 and parts[-2] == "lots":
-            lot_id = parts[-1]
-            global _t
-            if not _t:
-                _t = boto3.resource("dynamodb").Table(TABLE)
-            res = _t.get_item(Key={"id": lot_id})
-            if "Item" in res:
-                return _j(200, res["Item"])
-            return _j(404, {"error": "lot not found"})
-        
-        return _j(404, {"error": "not found"})
+        return {"statusCode": 200, "headers": {"content-type": "application/json"}, "body": json.dumps(compute_stats(_all()), default=_num)}
     except Exception as e:
-        print("lots error:", repr(e))
-        return _j(500, {"error": "internal error"})
+        print("stats error:", repr(e)[:300])
+        return {"statusCode": 502, "headers": {"content-type": "application/json"}, "body": json.dumps({"error": "stats failed"})}

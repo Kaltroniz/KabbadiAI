@@ -3,6 +3,11 @@ samconfig.toml
 __pycache__/
 *.pyc
 .env
+.env.local
+.env.production
 node_modules/
-*.jpg
-*.png
+.next/
+accuracy_results.csv
+# test photos may carry GPS data in EXIF: keep them out of the public repo
+/photos/
+/testphotos/
