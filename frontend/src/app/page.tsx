@@ -1,6 +1,6 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import CameraCapture from "@/components/CameraCapture";
 import ResultDisplay from "@/components/ResultDisplay";
 import { useLanguage, LANGS } from "@/contexts/LanguageContext";
@@ -34,6 +34,8 @@ function Home() {
   const [showQueueModal, setShowQueueModal] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const refreshQueue = async () => {
     try {
@@ -74,6 +76,20 @@ function Home() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
+      }
+    }
+    if (showUserMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showUserMenu]);
 
   const onCapture = async (b64: string, mime: string) => {
     setLoading(true);
@@ -349,34 +365,242 @@ function Home() {
             >
               ?
             </button>
-            {/* User avatar + logout */}
-            <button
-              id="logout-btn"
-              onClick={logout}
-              title={`Signed in as ${user?.name ?? user?.email}\nClick to sign out`}
-              style={{
-                background: "rgba(255,255,255,0.07)",
-                border: "1.5px solid rgba(255,255,255,0.12)",
-                borderRadius: "50%",
-                width: 44, height: 44,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer",
-                overflow: "hidden",
-                padding: 0,
-                minHeight: "unset",
-                flexShrink: 0,
-                transition: "border-color 0.2s",
-              }}
-            >
-              {user?.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={user.avatar} alt={user.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              ) : (
-                <span style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
-                  {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
-                </span>
+            {/* User Profile & Account Menu */}
+            <div className="relative" ref={userMenuRef}>
+              <button
+                id="user-menu-btn"
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                aria-expanded={showUserMenu}
+                aria-label="Account details and sign out"
+                title={`Signed in as ${user?.name ?? user?.email}`}
+                className="transition-all duration-200"
+                style={{
+                  background: showUserMenu ? "rgba(0,229,160,0.14)" : "rgba(255,255,255,0.06)",
+                  border: `1.5px solid ${showUserMenu ? "rgba(0,229,160,0.55)" : "rgba(255,255,255,0.12)"}`,
+                  borderRadius: "50%",
+                  width: 44,
+                  height: 44,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  position: "relative",
+                  padding: 0,
+                  boxShadow: showUserMenu ? "0 0 16px rgba(0,229,160,0.22)" : "none",
+                }}
+              >
+                <div style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "50%",
+                  overflow: "hidden",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "rgba(255,255,255,0.05)",
+                }}>
+                  {user?.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : (
+                    <span style={{ fontSize: "1.05rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
+                      {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                {/* Active indicator dot */}
+                <span style={{
+                  position: "absolute",
+                  bottom: 1,
+                  right: 1,
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: "#00e5a0",
+                  border: "2px solid #0f1717",
+                  boxShadow: "0 0 6px #00e5a0",
+                }} />
+              </button>
+
+              {/* Profile Dropdown Popover */}
+              {showUserMenu && (
+                <div
+                  className="animate-scale-pop"
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 10px)",
+                    right: 0,
+                    width: 290,
+                    maxWidth: "calc(100vw - 32px)",
+                    background: "rgba(14, 21, 23, 0.97)",
+                    backdropFilter: "blur(24px)",
+                    WebkitBackdropFilter: "blur(24px)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: 22,
+                    padding: "16px",
+                    boxShadow: "0 24px 50px rgba(0, 0, 0, 0.75), 0 0 30px rgba(0, 229, 160, 0.08)",
+                    zIndex: 100,
+                  }}
+                >
+                  {/* Profile Header */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 12 }}>
+                    <div style={{
+                      width: 46,
+                      height: 46,
+                      borderRadius: "50%",
+                      overflow: "hidden",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1.5px solid rgba(0,229,160,0.4)",
+                      boxShadow: "0 0 12px rgba(0,229,160,0.2)",
+                      flexShrink: 0,
+                    }}>
+                      {user?.avatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <span style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
+                          {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {user?.name || "KabadiAI User"}
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {user?.email || "Google Account"}
+                      </div>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: "0.68rem", fontWeight: 600, color: "#34d399", background: "rgba(16,185,129,0.12)", padding: "2px 8px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.25)" }}>
+                        <span style={{ fontSize: "8px" }}>●</span>
+                        <span>Google Account</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "0 -4px 10px" }} />
+
+                  {/* Quick links */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+                    <a
+                      href="/insights"
+                      onClick={() => setShowUserMenu(false)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "8px 12px",
+                        borderRadius: 12,
+                        fontSize: "0.85rem",
+                        fontWeight: 600,
+                        color: "var(--text-primary)",
+                        textDecoration: "none",
+                        transition: "background 0.15s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <span>📊</span>
+                      <span>Insights & Intelligence</span>
+                    </a>
+                    <a
+                      href="/map"
+                      onClick={() => setShowUserMenu(false)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "8px 12px",
+                        borderRadius: 12,
+                        fontSize: "0.85rem",
+                        fontWeight: 600,
+                        color: "var(--text-primary)",
+                        textDecoration: "none",
+                        transition: "background 0.15s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <span>🗺️</span>
+                      <span>Hotspot Map</span>
+                    </a>
+                    {queueCount > 0 && (
+                      <button
+                        onClick={() => { setShowUserMenu(false); refreshQueue(); setShowQueueModal(true); }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          width: "100%",
+                          textAlign: "left",
+                          gap: 10,
+                          padding: "8px 12px",
+                          borderRadius: 12,
+                          fontSize: "0.85rem",
+                          fontWeight: 600,
+                          color: "#fbbf24",
+                          background: "rgba(251,191,36,0.08)",
+                          border: "1px solid rgba(251,191,36,0.2)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span>📦</span>
+                          <span>Offline Queue</span>
+                        </span>
+                        <span style={{ fontSize: "0.75rem", background: "rgba(251,191,36,0.2)", padding: "1px 6px", borderRadius: 8 }}>
+                          {queueCount}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "0 -4px 12px" }} />
+
+                  {/* Explicit Sign Out Action Button */}
+                  <button
+                    id="logout-btn"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      logout();
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      width: "100%",
+                      padding: "10px 16px",
+                      borderRadius: 14,
+                      background: "rgba(239, 68, 68, 0.12)",
+                      border: "1.5px solid rgba(239, 68, 68, 0.35)",
+                      color: "#fca5a5",
+                      fontWeight: 700,
+                      fontSize: "0.88rem",
+                      cursor: "pointer",
+                      transition: "all 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(239, 68, 68, 0.22)";
+                      e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.55)";
+                      e.currentTarget.style.color = "#ffffff";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "rgba(239, 68, 68, 0.12)";
+                      e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.35)";
+                      e.currentTarget.style.color = "#fca5a5";
+                    }}
+                  >
+                    <span>🚪</span>
+                    <span>Sign Out</span>
+                  </button>
+                </div>
               )}
-            </button>
+            </div>
           </div>
         </header>
 
