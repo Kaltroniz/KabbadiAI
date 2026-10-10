@@ -41,10 +41,11 @@ export default function HotspotMap({ hotspots, markerRadius }: HotspotMapProps) 
     });
     mapInstanceRef.current = map;
 
-    // Dark theme cartodb tiles
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+    // 100% free OpenStreetMap tiles with sleek dark mode filter — zero API key required
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
+      className: "dark-map-tiles",
     }).addTo(map);
 
     // Plot each hotspot circle marker with clean popups
@@ -53,21 +54,21 @@ export default function HotspotMap({ hotspots, markerRadius }: HotspotMapProps) 
       const circle = L.circleMarker([h.lat, h.lon], {
         radius,
         fillColor: h.has_hazard ? "#f87171" : "#00e5a0",
-        fillOpacity: 0.82,
+        fillOpacity: 0.85,
         color: h.has_hazard ? "#dc2626" : "#047857",
         weight: 2,
       });
 
       const popupContent = `
-        <div style="font-family: Inter, sans-serif; min-width: 160px; color: #111;">
-          <strong style="font-size: 0.95rem; display: block; margin-bottom: 6px;">
+        <div style="font-family: Inter, sans-serif; min-width: 160px; color: #f3f4f6;">
+          <strong style="font-size: 0.95rem; display: block; margin-bottom: 6px; color: ${h.has_hazard ? '#fca5a5' : '#6ee7b7'};">
             ${h.has_hazard ? "⚠️ Hazardous Zone" : "✅ Clean Zone"}
           </strong>
-          <div style="color: #444; font-size: 0.82rem; line-height: 1.7;">
-            <div>📦 <b>${h.lot_count}</b> lots scanned</div>
-            <div>🔩 <b>${h.item_count}</b> items identified</div>
-            ${h.has_hazard ? `<div style="color: #dc2626; font-weight: bold;">☣️ <b>${h.hazard_count}</b> hazard flags</div>` : ""}
-            <div style="margin-top: 6px; color: #777; font-size: 0.75rem;">
+          <div style="color: #d1d5db; font-size: 0.82rem; line-height: 1.7;">
+            <div>📦 <b style="color: #fff;">${h.lot_count}</b> lots scanned</div>
+            <div>🔩 <b style="color: #fff;">${h.item_count}</b> items identified</div>
+            ${h.has_hazard ? `<div style="color: #f87171; font-weight: bold;">☣️ <b>${h.hazard_count}</b> hazard flags</div>` : ""}
+            <div style="margin-top: 6px; color: #9ca3af; font-size: 0.75rem;">
               ${h.lat.toFixed(2)}°N, ${h.lon.toFixed(2)}°E
             </div>
           </div>

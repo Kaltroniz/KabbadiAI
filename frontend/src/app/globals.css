@@ -590,9 +590,50 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; font-weight: 800; }
 .insights-bar-fill.animate-bar { width: var(--bar-width); }
 
 /* ============================================================
-   MAP SVG DOTS
+   MAP SVG DOTS & LEAFLET DARK THEME (NO API KEY)
    ============================================================ */
 @keyframes dotPulse {
   0%,100% { r: attr(r); opacity: 0.6; }
   50%      { opacity: 1; }
+}
+
+.dark-map-tiles {
+  filter: brightness(0.62) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.72) !important;
+}
+
+.leaflet-container {
+  background: #0d1516 !important;
+  font-family: Inter, sans-serif !important;
+}
+
+.leaflet-bar a {
+  background-color: rgba(20, 30, 32, 0.9) !important;
+  color: #00e5a0 !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.leaflet-bar a:hover {
+  background-color: rgba(30, 45, 48, 0.95) !important;
+  color: #34d399 !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(18, 26, 28, 0.96) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6) !important;
+}
+
+.leaflet-popup-tip {
+  background: rgba(18, 26, 28, 0.96) !important;
+}
+
+.leaflet-container a.leaflet-popup-close-button {
+  color: #9ca3af !important;
+  padding: 6px 8px !important;
+}
+
+.leaflet-container a.leaflet-popup-close-button:hover {
+  color: #f3f4f6 !important;
 }
