@@ -9,9 +9,14 @@ export const metadata: Metadata = {
   description: "For kabadiwalas: know what your e-waste lot is, what it is worth, and where to deliver it safely.",
   manifest: "/manifest.json",
   icons: {
-    icon: "/favicon.ico",
-    shortcut: "/icon-192.png",
-    apple: "/apple-touch-icon.png",
+    icon: [
+      { url: "/icon-32.png?v=2", sizes: "32x32", type: "image/png" },
+      { url: "/icon-16.png?v=2", sizes: "16x16", type: "image/png" },
+      { url: "/icon-192.png?v=2", sizes: "192x192", type: "image/png" },
+      { url: "/favicon.ico?v=2" },
+    ],
+    shortcut: "/icon-32.png?v=2",
+    apple: "/apple-touch-icon.png?v=2",
   },
 };
 
@@ -24,6 +29,12 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="hi">
+      <head>
+        <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png?v=2" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/icon-16.png?v=2" />
+        <link rel="shortcut icon" href="/icon-32.png?v=2" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=2" />
+      </head>
       <body>
         <LanguageProvider>
           <AuthProvider>
