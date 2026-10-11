@@ -2677,5 +2677,551 @@ applications:
         paths:
           - node_modules/**/*
           - .next/cache/**/*
-`
+```
+
+---
+
+## 9. Recent Implementations, Architecture Updates & Future Plans
+
+This section documents the latest features, architectural enhancements, UI/UX overhauls, and future engineering roadmap added to **KabadiAI**.
+
+---
+
+### 9.1 User Input Weight & Proportional Valuation Engine
+
+#### Architecture & Rationale
+When assessing scrap e-waste lots, computer vision alone cannot determine internal density or whether a component is heavy or light. To ensure 100% pricing transparency, users can explicitly type the measured lot weight in kilograms (e.g., `2.5 kg`).
+
+1. **Frontend Transmission**:
+   - The user enters weight into the numeric field on the home screen (`page.tsx`).
+   - Converted into grams: `user_weight_g = Math.round(parseFloat(weightKg) * 1000)`.
+   - Sent alongside `image_b64`, `media_type`, `language`, and GPS coordinates to the `/agent` endpoint.
+
+2. **Backend Proportional Weight Distribution (`src/agent/app.py`)**:
+   - If `user_weight_g` is provided, the backend normalizes and distributes the total weight across all identified items proportionally according to their visual AI estimates:
+     ```python
+     user_wt = CTX.get("user_weight_g")
+     if user_wt is not None and user_wt > 0:
+         ai_total = sum(it["est_weight_g"] for it in CTX["scan"]["items"]) or 1
+         for it in CTX["scan"]["items"]:
+             it["est_weight_g"] = round(user_wt * it["est_weight_g"] / ai_total)
+     ```
+
+3. **Three-Tier Scrap Valuation Categories**:
+   - **Per Piece (`basis: "per_piece"`)**: Whole electronic devices & consumer appliances (e.g., Laptops, Mobile phones, Desktop CPUs, Hard drives, Monitors, Microwaves, ACs, Washing machines) are bought in Indian scrap markets on a fixed per-unit basis:
+     $$\text{INR Range} = [\text{min\_inr} \times \text{count}, \; \text{max\_inr} \times \text{count}]$$
+     *(Note: Changing the weight does not alter their unit scrap price).*
+   - **Per Kilogram (`basis: "per_kg"`)**: Raw scrap materials and circuit boards (e.g., Motherboards, RAM modules, Mobile PCBs, Copper wires, Aluminum heatsinks, Clean copper) scale directly with weight:
+     $$\text{INR Range} = \left[\text{min\_inr} \times \frac{\text{est\_weight\_g}}{1000}, \; \text{max\_inr} \times \frac{\text{est\_weight\_g}}{1000}\right]$$
+     *(Entering 5 kg instead of 1 kg directly increases the valuation by 5×).*
+   - **Hazardous (`basis: "none"`)**: Swollen lithium batteries, mercury lamps, and alkaline cells carry severe hazard flags and ₹0 commercial buy-back value.
+
+4. **Transparent UI Feedback (`ResultDisplay.tsx`)**:
+   - Displays a prominent status pill: `⚖️ Scaled by Your Weight` vs `AI Estimated Weight`.
+   - Each item row displays its pricing model:
+     - `Per Piece (Fixed unit rate)` in cyan badge.
+     - `Per Kg (Scales with weight)` in emerald badge.
+     - `Hazardous (₹0)` in crimson badge.
+
+---
+
+### 9.2 Two-Stage Photo Capture & "Submit to AI" UX Flow
+
+#### User Problem
+Previously, capturing or selecting an image immediately sent the scan request to the backend, preventing users from entering their lot weight beforehand or reviewing their photo.
+
+#### Solution Implemented
+1. **Photo Capture & Preview Card (`CameraCapture.tsx`)**:
+   - Taking a photo displays an immediate high-resolution preview with an active `✓ Photo Ready` badge.
+   - Renders a balanced 50/50 action row with identical 44px height:
+     - `📷 Change Photo` (Emerald ghost styling)
+     - `🗑 Delete Photo` (Crimson ghost styling)
+2. **Dedicated Submit Trigger (`page.tsx`)**:
+   - Prominent glowing button: `✨ Submit to AI 🚀`.
+   - Disabled with a guiding hint (`Take a photo first to submit`) until a photo exists.
+   - When clicked, sends the image + typed weight + GPS to the backend, displaying an animated orbit loader (`Analyzing with AI…`).
+   - Retaking after valuation resets the photo, weight, and results cleanly.
+
+---
+
+### 9.3 262 Verified Collection Centers & Interactive Map Engine
+
+#### Dataset
+- Extracted and compiled **262 authorized facilities** with verified coordinates across India from CPCB and SPCB regulatory registers:
+  - **208 Drop-off Collection Points** (EPR brand take-back points).
+  - **54 Authorized Recyclers & Dismantlers** (State-licensed bulk processors).
+- Stored locally at `frontend/src/data/collection_centers.json` and `frontend/public/data/collection_centers.json`.
+
+#### Map Implementation (`HotspotMap.tsx` & `map/page.tsx`)
+- **Zero API Keys**: Public OpenStreetMap tile layer styled with a sleek CSS dark-mode invert filter (`.dark-map-tiles`).
+- **Compact Custom DivIcon Badges**:
+  - `📍` Amber badges (`.center-marker-point`) for Drop-off Collection Points.
+  - `🏢` Cyan badges (`.center-marker-recycler`) for Authorized Recyclers.
+  - Sized compactly at **20px × 20px** with hover scale micro-animations.
+- **Rich Popups**:
+  - Facility Name, Classification Badge, City & Full Address.
+  - Toll-free contact number and MTA capacity where available.
+  - One-click `🧭 Get Directions` button opening GPS navigation directly in Google Maps.
+- **Interactive Layer Toggles**:
+  - Toggle **Centers (262)** on/off.
+  - Toggle **Hotspots** on/off.
+- **Legacy Cleanup**: Completely removed outdated "View Pickup Requests" buttons in favor of clean `📷 Back to Scanner` navigation.
+
+---
+
+### 9.4 Mobile Header Layout & Profile Dropdown
+
+- **Responsive Header Alignment**:
+  - Re-proportioned header elements on mobile screens (`max-width: 480px`): Help button (`34px`), Profile avatar button (`36px`), Map and Insights pills (`34px`), and container gap (`6px`).
+  - Adjusted header padding to `0.85rem 1rem`.
+  - Guarantees the profile avatar button stays completely **inside the header border** without horizontal overflow on narrow devices.
+- **Account Popover**:
+  - Displays user avatar, Google name, email, quick navigation links to Insights/Map/Offline Queue, and a high-contrast **Sign Out** button.
+
+---
+
+### 9.5 Streamlined Analytics (Insights Section)
+
+- **Heatmap Centralization**: Removed the redundant SVG scatter heatmap card from `/insights` to avoid user confusion, establishing `/map` as the dedicated geospatial map.
+- **Focused Intelligence**:
+  - Real scan count and hazard flags aggregated from the DynamoDB ledger (`LotsTable`).
+  - Animated horizontal bar charts showing estimated scrap volume (kg) by material (Motherboard, Copper wire, Aluminum, RAM, etc.).
+  - **🤖 Ask the Analyst**: Interactive natural language assistant powered by Gemini function calling with deterministic tool execution (`overview`, `hotspots`, `material_by_area`).
+
+---
+
+### 9.6 Complete Key Source Code
+
+#### `frontend/src/components/CameraCapture.tsx`
+```tsx
+"use client";
+import React, { useRef, useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
+
+export default function CameraCapture({
+  onCapture,
+  capturedImage,
+  onClearCapture,
+  isLoading,
+}: {
+  onCapture: (b64: string, mime: string) => void;
+  capturedImage?: { b64: string; mime: string } | null;
+  onClearCapture?: () => void;
+  isLoading?: boolean;
+}) {
+  const { t, speak } = useLanguage();
+  const ref = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError(null);
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1200;
+      let { width, height } = img;
+      if (Math.max(width, height) > MAX) {
+        const r = MAX / Math.max(width, height);
+        width *= r;
+        height *= r;
+      }
+      const c = document.createElement("canvas");
+      c.width = Math.round(width);
+      c.height = Math.round(height);
+      const ctx = c.getContext("2d");
+      if (!ctx) { setError(t("scanFailed")); return; }
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      onCapture(c.toDataURL("image/jpeg", 0.8).split(",")[1], "image/jpeg");
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); setError(t("scanFailed")); };
+    img.src = url;
+  };
+
+  return (
+    <div className="w-full">
+      <input ref={ref} type="file" accept="image/*" capture="environment" onChange={handle} className="hidden" />
+      {error && (
+        <div className="mb-3 rounded-2xl px-4 py-3 font-semibold text-sm animate-fade-up"
+          style={{ background: "rgba(127,0,0,0.3)", border: "1px solid rgba(220,38,38,0.4)", color: "#fca5a5" }}>
+          ⚠ {error}
+        </div>
+      )}
+
+      {capturedImage && !isLoading ? (
+        <div
+          className="relative rounded-2xl overflow-hidden animate-scale-pop"
+          style={{
+            background: "rgba(15, 23, 20, 0.85)",
+            border: "1.5px solid rgba(0, 229, 160, 0.4)",
+            boxShadow: "0 8px 30px rgba(0, 229, 160, 0.15)",
+            padding: "12px",
+          }}
+        >
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              height: 220,
+              borderRadius: 14,
+              overflow: "hidden",
+              background: "#080c0a",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`data:${capturedImage.mime};base64,${capturedImage.b64}`}
+              alt="Captured e-waste lot"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+            {/* Status badge */}
+            <div
+              style={{
+                position: "absolute",
+                top: 10,
+                left: 10,
+                background: "rgba(0, 229, 160, 0.95)",
+                color: "#05130b",
+                fontSize: "0.75rem",
+                fontWeight: 800,
+                padding: "3px 10px",
+                borderRadius: 20,
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                boxShadow: "0 2px 10px rgba(0,0,0,0.4)",
+              }}
+            >
+              <span>✓</span>
+              <span>{t("photoReady") || "Photo Ready"}</span>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 12, width: "100%" }}>
+            <button
+              type="button"
+              id="retake-photo-btn"
+              onClick={() => { speak(t("takePhoto")); ref.current?.click(); }}
+              style={{
+                flex: "1 1 0%",
+                minWidth: 0,
+                height: 44,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                borderRadius: 14,
+                background: "rgba(0, 229, 160, 0.1)",
+                border: "1px solid rgba(0, 229, 160, 0.3)",
+                color: "#00e5a0",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                padding: "0 10px",
+                transition: "all 0.18s",
+              }}
+            >
+              <span style={{ fontSize: "1rem" }}>📷</span>
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {t("retakePhoto") || "Change Photo"}
+              </span>
+            </button>
+            {onClearCapture && (
+              <button
+                type="button"
+                id="clear-photo-btn"
+                onClick={onClearCapture}
+                style={{
+                  flex: "1 1 0%",
+                  minWidth: 0,
+                  height: 44,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  borderRadius: 14,
+                  background: "rgba(239, 68, 68, 0.1)",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  color: "#fca5a5",
+                  fontSize: "0.82rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  padding: "0 10px",
+                  transition: "all 0.18s",
+                }}
+              >
+                <span style={{ fontSize: "1rem" }}>🗑</span>
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {t("deletePhoto") || "Delete Photo"}
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <button
+          id="camera-capture-btn"
+          onClick={() => { speak(t("takePhoto")); ref.current?.click(); }}
+          disabled={isLoading}
+          className={`camera-btn ${isLoading ? "" : "scanline-effect"}`}
+        >
+          {/* Corner brackets */}
+          <span className="camera-corner tl" />
+          <span className="camera-corner tr" />
+          <span className="camera-corner bl" />
+          <span className="camera-corner br" />
+
+          {isLoading ? (
+            <>
+              {/* Orbit loader */}
+              <div style={{ position: "relative", width: 48, height: 48 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: "50%",
+                  border: "2px solid rgba(0,229,160,0.2)",
+                  position: "absolute", inset: 0,
+                }} />
+                <div className="orbit-dot" />
+                <div className="orbit-dot" />
+                <div className="orbit-dot" />
+              </div>
+              <span className="text-xl font-bold" style={{ color: "var(--emerald-glow)" }}>
+                {t("analyzing")}
+              </span>
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+                AI is processing your lot…
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="camera-icon">📷</span>
+              <span className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+                {t("takePhoto")}
+              </span>
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Tap to take or choose photo
+              </span>
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+```
+
+#### `frontend/src/components/HotspotMap.tsx`
+```tsx
+"use client";
+import React, { useEffect, useRef } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import collectionCentersData from "@/data/collection_centers.json";
+
+export interface Hotspot {
+  lat: number;
+  lon: number;
+  lot_count: number;
+  item_count: number;
+  hazard_count: number;
+  has_hazard: boolean;
+}
+
+export interface CollectionCenter {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  lat: number;
+  lon: number;
+  kind: "collection_point" | "recycler";
+  toll_free?: string | null;
+  capacity_mta?: number | null;
+  notes?: string | null;
+}
+
+interface HotspotMapProps {
+  hotspots: Hotspot[];
+  markerRadius: (lot_count: number) => number;
+  showCenters?: boolean;
+  showHotspots?: boolean;
+}
+
+export default function HotspotMap({
+  hotspots,
+  markerRadius,
+  showCenters = true,
+  showHotspots = true,
+}: HotspotMapProps) {
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+
+    const center: [number, number] = hotspots.length > 0
+      ? [hotspots[0].lat, hotspots[0].lon]
+      : [28.61, 77.23];
+
+    const map = L.map(mapContainerRef.current, {
+      center,
+      zoom: 11,
+      scrollWheelZoom: true,
+    });
+    mapInstanceRef.current = map;
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+      className: "dark-map-tiles",
+    }).addTo(map);
+
+    // 1. Plot Scanned Lot Hotspots
+    if (showHotspots) {
+      hotspots.forEach((h) => {
+        const radius = markerRadius(h.lot_count);
+        const circle = L.circleMarker([h.lat, h.lon], {
+          radius,
+          fillColor: h.has_hazard ? "#f87171" : "#00e5a0",
+          fillOpacity: 0.85,
+          color: h.has_hazard ? "#dc2626" : "#047857",
+          weight: 2,
+        });
+
+        const popupContent = `
+          <div style="font-family: Inter, sans-serif; min-width: 170px; color: #f3f4f6;">
+            <strong style="font-size: 0.95rem; display: block; margin-bottom: 6px; color: ${h.has_hazard ? '#fca5a5' : '#6ee7b7'};">
+              ${h.has_hazard ? "⚠️ Hazardous Lot Zone" : "✅ Clean Lot Zone"}
+            </strong>
+            <div style="color: #d1d5db; font-size: 0.82rem; line-height: 1.7;">
+              <div>📦 <b style="color: #fff;">${h.lot_count}</b> lots scanned</div>
+              <div>🔩 <b style="color: #fff;">${h.item_count}</b> items identified</div>
+              ${h.has_hazard ? `<div style="color: #f87171; font-weight: bold;">☣️ <b>${h.hazard_count}</b> hazard flags</div>` : ""}
+            </div>
+          </div>
+        `;
+        circle.bindPopup(popupContent);
+        circle.addTo(map);
+      });
+    }
+
+    // 2. Plot Collection Centers & Recyclers with 20px badge icons
+    if (showCenters) {
+      const pointIcon = L.divIcon({
+        className: "custom-leaflet-marker",
+        html: `<div class="center-marker-badge center-marker-point" title="Drop-off Collection Point"><span>📍</span></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+        popupAnchor: [0, -10],
+      });
+
+      const recyclerIcon = L.divIcon({
+        className: "custom-leaflet-marker",
+        html: `<div class="center-marker-badge center-marker-recycler" title="Authorized Recycler"><span>🏢</span></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+        popupAnchor: [0, -10],
+      });
+
+      const centers = collectionCentersData as CollectionCenter[];
+
+      centers.forEach((center) => {
+        const isRecycler = center.kind === "recycler";
+        const marker = L.marker([center.lat, center.lon], {
+          icon: isRecycler ? recyclerIcon : pointIcon,
+        });
+
+        const popupContent = `
+          <div style="font-family: Inter, sans-serif; min-width: 210px; color: #f3f4f6;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+              <span style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 6px; background: ${isRecycler ? 'rgba(14,165,233,0.18)' : 'rgba(245,158,11,0.18)'}; color: ${isRecycler ? '#38bdf8' : '#fbbf24'}; border: 1px solid ${isRecycler ? 'rgba(14,165,233,0.35)' : 'rgba(245,158,11,0.35)'};">
+                ${isRecycler ? '🏢 Authorized Recycler' : '📍 Drop-off Center'}
+              </span>
+              <span style="font-size: 0.72rem; color: #9ca3af; font-weight: 500;">${center.city || ''}</span>
+            </div>
+            <strong style="font-size: 0.95rem; display: block; color: #ffffff; line-height: 1.3; margin-bottom: 4px;">
+              ${center.name}
+            </strong>
+            <div style="font-size: 0.78rem; color: #9ca3af; line-height: 1.4; margin-bottom: 8px;">
+              ${center.address}
+            </div>
+            ${center.toll_free ? `
+              <div style="display: flex; align-items: center; gap: 5px; font-size: 0.8rem; font-weight: 600; color: #34d399; margin-bottom: 6px;">
+                <span>📞</span> <span>Toll-Free: ${center.toll_free}</span>
+              </div>
+            ` : ''}
+            ${center.capacity_mta ? `
+              <div style="font-size: 0.78rem; font-weight: 600; color: #38bdf8; margin-bottom: 6px;">
+                ⚙️ Capacity: ${center.capacity_mta} MTA
+              </div>
+            ` : ''}
+            ${center.notes ? `
+              <div style="font-size: 0.72rem; color: #d1d5db; font-style: italic; background: rgba(255,255,255,0.06); padding: 5px 8px; border-radius: 6px; margin-bottom: 8px; line-height: 1.35;">
+                ${center.notes}
+              </div>
+            ` : ''}
+            <a
+              href="https://www.google.com/maps/dir/?api=1&destination=${center.lat},${center.lon}"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 7px 10px; border-radius: 8px; background: rgba(0,229,160,0.15); border: 1px solid rgba(0,229,160,0.35); color: #00e5a0; text-decoration: none; font-size: 0.8rem; font-weight: 700; margin-top: 4px;"
+            >
+              <span>🧭</span> <span>Get Directions</span>
+            </a>
+          </div>
+        `;
+
+        marker.bindPopup(popupContent);
+        marker.addTo(map);
+      });
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [hotspots, markerRadius, showCenters, showHotspots]);
+
+  return (
+    <div
+      ref={mapContainerRef}
+      style={{ width: "100%", height: "100%", minHeight: 440 }}
+    />
+  );
+}
+```
+
+---
+
+### 9.7 Future Plans & Engineering Roadmap
+
+1. **Proof of Recycling & EPR Credit Generation**:
+   - Issue verifiable digital transfer receipts whenever an informal collector drops off hazardous or bulk e-waste at an authorized CPCB dismantler.
+   - Recycler validates drop-off via QR code scan, generating verifiable carbon & EPR credits for electronics producers.
+
+2. **Multi-Item Bounding Box Segmentation**:
+   - Upgrade from single-label image classification to fine-grained multi-object bounding boxes using Gemini Vision 2.5 Flash, highlighting individual components (e.g., highlighting battery vs. motherboard vs. heatsink separately on the scanned photo).
+
+3. **Background Sync Workers (PWA Phase 2)**:
+   - Leverage the W3C Background Sync API (`SyncManager`) to dispatch IndexedDB queued lots automatically in the background even if the browser tab was closed before network reconnection.
+
+4. **Regional Indian Language Expansion**:
+   - Expand voice synthesizer (TTS) and dictionary coverage from English/Hindi to **Tamil, Telugu, Kannada, Bengali, and Marathi**, empowering informal scrap workers across major metropolitan collection hubs.
+
+5. **Live Scrap Price Index API**:
+   - Connect the DynamoDB `PricesTable` to periodic scrap market aggregators and metal commodity indices (MCX / LME spot prices for copper, aluminium, and gold) to maintain real-time automated daily pricing updates.
+
 
