@@ -100,7 +100,7 @@ function Home() {
 
   const submitToAi = async () => {
     if (!capturedPhoto) {
-      setSubmitError(t("takePhotoFirst") || "Please take a photo first to submit");
+      setSubmitError(t("takePhotoFirst"));
       return;
     }
 
@@ -703,7 +703,7 @@ function Home() {
                 <span className="text-lg font-bold" style={{ color: "var(--text-muted)" }}>kg</span>
               </div>
               <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-                Optional. Enter the weight of your lot to get accurate valuation calculated by AI.
+                {t("weightHint")}
               </p>
             </div>
 
@@ -748,9 +748,7 @@ function Home() {
                   <>
                     <span style={{ fontSize: "1.25rem" }}>✨</span>
                     <span style={{ fontFamily: "Outfit, sans-serif", fontSize: "1.05rem" }}>
-                      {!capturedPhoto
-                        ? (t("takePhotoFirst") || "Take Photo First to Submit")
-                        : (t("submitToAi") || "Submit to AI")}
+                      {!capturedPhoto ? t("takePhotoFirst") : t("submitToAi")}
                     </span>
                     <span style={{ fontSize: "1.1rem" }}>🚀</span>
                   </>
@@ -759,7 +757,7 @@ function Home() {
 
               {!capturedPhoto && (
                 <p className="text-center text-xs mt-2.5" style={{ color: "var(--text-muted)" }}>
-                  Take or choose a photo above to enable the AI valuation submit button
+                  {t("takePhotoHint")}
                 </p>
               )}
             </div>

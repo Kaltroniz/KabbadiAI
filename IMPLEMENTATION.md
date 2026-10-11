@@ -3,7 +3,7 @@
 This document captures all the core ideas, architectural decisions, and code implemented for the **KabadiAI** project during the Bharat Builds Tour (Environmental Hacks) hackathon.
 
 ## 1. Core Idea
-KabadiAI is a multilingual mobile web app (PWA) designed to combat e-waste. Users take a photo of old electronics, and the app uses AI (orchestrated via Strands Agents) to:
+KabadiAI is a multilingual mobile web app (PWA) designed to combat e-waste. Users take a photo of old electronics, and the app uses AI (Google Gemini 3.5 Flash with AWS Bedrock fallback) to:
 1. Identify the items and their condition.
 2. Flag any hazardous materials (e.g., Lead, Lithium) using strict, predefined safety text.
 3. Calculate an indicative fair-price value (Min/Max INR).
@@ -15,8 +15,8 @@ KabadiAI is a multilingual mobile web app (PWA) designed to combat e-waste. User
 ## 2. Architecture Stack
 * **Frontend:** Next.js 14, TailwindCSS v3.4, React Context (for multilingual strings), and PWA Manifest.
 * **Backend:** AWS Serverless Application Model (SAM).
-* **Database:** Amazon DynamoDB (Tables: `PricesTable`, `RecyclersTable`, `DisposalProtocolsTable`).
-* **AI Orchestration:** Strands Agents (AWS Bedrock / Gemini 3.1 Pro High).
+* **Database:** Amazon DynamoDB (Tables: `PricesTable`, `RecyclersTable`, `LotsTable`, `PickupsTable`, `UsersTable`).
+* **AI Engine & Orchestration:** Google Gemini 3.5 Flash (via direct REST API) with AWS Bedrock (`amazon.nova-2-lite-v1:0`) fallback; deterministic multi-step Lambda pipeline with optional Strands Agent coordination mode.
 
 ---
 
@@ -2690,7 +2690,7 @@ This section documents the latest features, architectural enhancements, UI/UX ov
 ### 9.1 User Input Weight & Proportional Valuation Engine
 
 #### Architecture & Rationale
-When assessing scrap e-waste lots, computer vision alone cannot determine internal density or whether a component is heavy or light. To ensure 100% pricing transparency, users can explicitly type the measured lot weight in kilograms (e.g., `2.5 kg`).
+When assessing scrap e-waste lots, computer vision estimates item components and visual weight, but cannot measure exact internal mass. To calibrate valuation accurately, users can optionally enter the measured lot weight in kilograms (e.g., `2.5 kg`).
 
 1. **Frontend Transmission**:
    - The user enters weight into the numeric field on the home screen (`page.tsx`).
@@ -2698,22 +2698,22 @@ When assessing scrap e-waste lots, computer vision alone cannot determine intern
    - Sent alongside `image_b64`, `media_type`, `language`, and GPS coordinates to the `/agent` endpoint.
 
 2. **Backend Proportional Weight Distribution (`src/agent/app.py`)**:
-   - If `user_weight_g` is provided, the backend normalizes and distributes the total weight across all identified items proportionally according to their visual AI estimates:
+   - If `user_weight_g` is provided (validated in `1..2_000_000` grams in the handler), the backend normalizes and distributes the total weight across all identified items proportionally according to their visual AI estimates, safely handling zero totals:
      ```python
-     user_wt = CTX.get("user_weight_g")
-     if user_wt is not None and user_wt > 0:
-         ai_total = sum(it["est_weight_g"] for it in CTX["scan"]["items"]) or 1
-         for it in CTX["scan"]["items"]:
-             it["est_weight_g"] = round(user_wt * it["est_weight_g"] / ai_total)
+     uw = CTX.get("user_weight_g")          # validate 1..2_000_000 in the handler
+     if uw:
+         items = CTX["scan"]["items"]; tot = sum(i["est_weight_g"] for i in items)
+         for i in items:
+             i["est_weight_g"] = round(uw * ((i["est_weight_g"] / tot) if tot > 0 else 1 / len(items)))
      ```
 
 3. **Three-Tier Scrap Valuation Categories**:
    - **Per Piece (`basis: "per_piece"`)**: Whole electronic devices & consumer appliances (e.g., Laptops, Mobile phones, Desktop CPUs, Hard drives, Monitors, Microwaves, ACs, Washing machines) are bought in Indian scrap markets on a fixed per-unit basis:
      $$\text{INR Range} = [\text{min\_inr} \times \text{count}, \; \text{max\_inr} \times \text{count}]$$
-     *(Note: Changing the weight does not alter their unit scrap price).*
-   - **Per Kilogram (`basis: "per_kg"`)**: Raw scrap materials and circuit boards (e.g., Motherboards, RAM modules, Mobile PCBs, Copper wires, Aluminum heatsinks, Clean copper) scale directly with weight:
+     *(Note: Weights are estimates; per-piece whole devices do not scale with weight).*
+   - **Per Kilogram (`basis: "per_kg"`)**: Raw scrap materials and circuit boards (e.g., Motherboards, RAM modules, Mobile PCBs, Copper wires, Aluminum heatsinks, Clean copper) scale directly with their estimated weight share:
      $$\text{INR Range} = \left[\text{min\_inr} \times \frac{\text{est\_weight\_g}}{1000}, \; \text{max\_inr} \times \frac{\text{est\_weight\_g}}{1000}\right]$$
-     *(Entering 5 kg instead of 1 kg directly increases the valuation by 5×).*
+     *(Note: Per-kg items scale proportionally based on their weight share in the lot).*
    - **Hazardous (`basis: "none"`)**: Swollen lithium batteries, mercury lamps, and alkaline cells carry severe hazard flags and ₹0 commercial buy-back value.
 
 4. **Transparent UI Feedback (`ResultDisplay.tsx`)**:
@@ -2744,16 +2744,20 @@ Previously, capturing or selecting an image immediately sent the scan request to
 
 ---
 
-### 9.3 262 Verified Collection Centers & Interactive Map Engine
+### 9.3 262 Listed Collection Centers & Interactive Map Engine
 
 #### Dataset
-- Extracted and compiled **262 authorized facilities** with verified coordinates across India from CPCB and SPCB regulatory registers:
-  - **208 Drop-off Collection Points** (EPR brand take-back points).
-  - **54 Authorized Recyclers & Dismantlers** (State-licensed bulk processors).
-- Stored locally at `frontend/src/data/collection_centers.json` and `frontend/public/data/collection_centers.json`.
+- Extracted and compiled **262 listed facilities** with **approximate coordinates** across India:
+  - **54 Authorized Recyclers & Dismantlers** sourced from the official **CPCB (Central Pollution Control Board) register**.
+  - **208 Drop-off Collection Points** sourced from producer and third-party take-back directories, mapped to approximate city or area centers.
+- Stored locally at `frontend/src/data/collection_centers.json` as the single canonical frontend source.
 
 #### Map Implementation (`HotspotMap.tsx` & `map/page.tsx`)
 - **Zero API Keys**: Public OpenStreetMap tile layer styled with a sleek CSS dark-mode invert filter (`.dark-map-tiles`).
+- **Deterministic Golden-Spiral Jitter**: Prevents overlapping facilities sharing approximate city/area centers (e.g., 30 in Jaipur, 10 in Faridabad) from stacking on top of each other, dispersing them in a tight spiral (~350m–1km) so every pin is distinct and clickable.
+- **Street Address Routing**: "Get Directions" uses the facility name, street address, city, and state in the destination parameter, routing drivers to the exact street address instead of approximate city centers.
+- **Dynamic Geolocation Centering**: Automatically centers on the user's location when browser geolocation is permitted, falling back to Delhi-NCR / hotspot bounds.
+- **Zero Re-Render Rebuilds**: Uses persistent `L.layerGroup` layers and memoized `markerRadius` (`useCallback`) to update markers cleanly without destroying the Leaflet map instance.
 - **Compact Custom DivIcon Badges**:
   - `📍` Amber badges (`.center-marker-point`) for Drop-off Collection Points.
   - `🏢` Cyan badges (`.center-marker-recycler`) for Authorized Recyclers.
@@ -2761,9 +2765,9 @@ Previously, capturing or selecting an image immediately sent the scan request to
 - **Rich Popups**:
   - Facility Name, Classification Badge, City & Full Address.
   - Toll-free contact number and MTA capacity where available.
-  - One-click `🧭 Get Directions` button opening GPS navigation directly in Google Maps.
+  - One-click `🧭 Get Directions` button opening GPS navigation directly in Google Maps using street address.
 - **Interactive Layer Toggles**:
-  - Toggle **Centers (262)** on/off.
+  - Toggle **Listed Centers (262)** on/off.
   - Toggle **Hotspots** on/off.
 - **Legacy Cleanup**: Completely removed outdated "View Pickup Requests" buttons in favor of clean `📷 Back to Scanner` navigation.
 
@@ -2899,7 +2903,7 @@ export default function CameraCapture({
               }}
             >
               <span>✓</span>
-              <span>{t("photoReady") || "Photo Ready"}</span>
+              <span>{t("photoReady")}</span>
             </div>
           </div>
 
@@ -2929,7 +2933,7 @@ export default function CameraCapture({
             >
               <span style={{ fontSize: "1rem" }}>📷</span>
               <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {t("retakePhoto") || "Change Photo"}
+                {t("retakePhoto")}
               </span>
             </button>
             {onClearCapture && (
@@ -2958,7 +2962,7 @@ export default function CameraCapture({
               >
                 <span style={{ fontSize: "1rem" }}>🗑</span>
                 <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {t("deletePhoto") || "Delete Photo"}
+                  {t("deletePhoto")}
                 </span>
               </button>
             )}
@@ -2994,7 +2998,7 @@ export default function CameraCapture({
                 {t("analyzing")}
               </span>
               <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                AI is processing your lot…
+                {t("aiProcessingLot")}
               </span>
             </>
           ) : (
@@ -3004,7 +3008,7 @@ export default function CameraCapture({
                 {t("takePhoto")}
               </span>
               <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                Tap to take or choose photo
+                {t("tapToScanOrChoose")}
               </span>
             </>
           )}
@@ -3053,6 +3057,40 @@ interface HotspotMapProps {
   showHotspots?: boolean;
 }
 
+// Jitter function: prevents facilities sharing exact city/area center coordinates
+// (e.g., 30 in Jaipur, 10 in Faridabad) from stacking completely on top of each other.
+function getJitteredCenters(centers: CollectionCenter[]): (CollectionCenter & { displayLat: number; displayLon: number })[] {
+  const groups: Record<string, number> = {};
+  centers.forEach((c) => {
+    const key = `${c.lat.toFixed(4)},${c.lon.toFixed(4)}`;
+    groups[key] = (groups[key] || 0) + 1;
+  });
+
+  const groupIndex: Record<string, number> = {};
+
+  return centers.map((c) => {
+    const key = `${c.lat.toFixed(4)},${c.lon.toFixed(4)}`;
+    const totalInGroup = groups[key];
+    const idx = groupIndex[key] || 0;
+    groupIndex[key] = idx + 1;
+
+    if (totalInGroup <= 1) {
+      return { ...c, displayLat: c.lat, displayLon: c.lon };
+    }
+
+    // Deterministic golden-angle spiral distribution (~300m - 1.2km)
+    const angle = idx * 2.399963;
+    const radius = 0.0035 + 0.0022 * Math.sqrt(idx);
+    const latRad = (c.lat * Math.PI) / 180;
+    const cosLat = Math.cos(latRad) || 1;
+
+    const displayLat = c.lat + radius * Math.cos(angle);
+    const displayLon = c.lon + (radius * Math.sin(angle)) / cosLat;
+
+    return { ...c, displayLat, displayLon };
+  });
+}
+
 export default function HotspotMap({
   hotspots,
   markerRadius,
@@ -3061,21 +3099,21 @@ export default function HotspotMap({
 }: HotspotMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const hotspotLayerRef = useRef<L.LayerGroup | null>(null);
+  const centerLayerRef = useRef<L.LayerGroup | null>(null);
+  const userLayerRef = useRef<L.LayerGroup | null>(null);
+  const hasCenteredOnUserRef = useRef(false);
 
+  // 1. Initialize Map and Tile Layer ONCE
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    if (mapInstanceRef.current) {
-      mapInstanceRef.current.remove();
-      mapInstanceRef.current = null;
-    }
-
-    const center: [number, number] = hotspots.length > 0
+    const initialCenter: [number, number] = hotspots.length > 0
       ? [hotspots[0].lat, hotspots[0].lon]
-      : [28.61, 77.23];
+      : [28.6139, 77.2090];
 
     const map = L.map(mapContainerRef.current, {
-      center,
+      center: initialCenter,
       zoom: 11,
       scrollWheelZoom: true,
     });
@@ -3087,7 +3125,56 @@ export default function HotspotMap({
       className: "dark-map-tiles",
     }).addTo(map);
 
-    // 1. Plot Scanned Lot Hotspots
+    const hotspotLayer = L.layerGroup().addTo(map);
+    const centerLayer = L.layerGroup().addTo(map);
+    const userLayer = L.layerGroup().addTo(map);
+
+    hotspotLayerRef.current = hotspotLayer;
+    centerLayerRef.current = centerLayer;
+    userLayerRef.current = userLayer;
+
+    // Center map on user location if browser geolocation is permitted
+    if (typeof window !== "undefined" && navigator.geolocation && !hasCenteredOnUserRef.current) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!mapInstanceRef.current) return;
+          const { latitude, longitude } = pos.coords;
+          hasCenteredOnUserRef.current = true;
+          mapInstanceRef.current.setView([latitude, longitude], 12);
+
+          const userIcon = L.divIcon({
+            className: "custom-user-marker",
+            html: `<div style="width: 16px; height: 16px; border-radius: 50%; background: #38bdf8; border: 2.5px solid #ffffff; box-shadow: 0 0 14px #38bdf8; animation: pulse 2s infinite;"></div>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+          });
+          L.marker([latitude, longitude], { icon: userIcon })
+            .bindPopup("<div style='font-family: Inter, sans-serif; font-weight: 700; color: #38bdf8;'>📍 Your Current Location</div>")
+            .addTo(userLayer);
+        },
+        () => {},
+        { timeout: 6000, maximumAge: 60000 }
+      );
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        hotspotLayerRef.current = null;
+        centerLayerRef.current = null;
+        userLayerRef.current = null;
+      }
+    };
+  }, []);
+
+  // 2. Update Hotspot Markers without recreating the map
+  useEffect(() => {
+    const layer = hotspotLayerRef.current;
+    if (!layer) return;
+
+    layer.clearLayers();
+
     if (showHotspots) {
       hotspots.forEach((h) => {
         const radius = markerRadius(h.lot_count);
@@ -3108,19 +3195,30 @@ export default function HotspotMap({
               <div>📦 <b style="color: #fff;">${h.lot_count}</b> lots scanned</div>
               <div>🔩 <b style="color: #fff;">${h.item_count}</b> items identified</div>
               ${h.has_hazard ? `<div style="color: #f87171; font-weight: bold;">☣️ <b>${h.hazard_count}</b> hazard flags</div>` : ""}
+              <div style="margin-top: 6px; color: #9ca3af; font-size: 0.75rem;">
+                ${h.lat.toFixed(2)}°N, ${h.lon.toFixed(2)}°E
+              </div>
             </div>
           </div>
         `;
+
         circle.bindPopup(popupContent);
-        circle.addTo(map);
+        circle.addTo(layer);
       });
     }
+  }, [hotspots, markerRadius, showHotspots]);
 
-    // 2. Plot Collection Centers & Recyclers with 20px badge icons
+  // 3. Update Collection Center Markers with Jitter & Street-Address Directions
+  useEffect(() => {
+    const layer = centerLayerRef.current;
+    if (!layer) return;
+
+    layer.clearLayers();
+
     if (showCenters) {
       const pointIcon = L.divIcon({
         className: "custom-leaflet-marker",
-        html: `<div class="center-marker-badge center-marker-point" title="Drop-off Collection Point"><span>📍</span></div>`,
+        html: `<div class="center-marker-badge center-marker-point" title="Drop-off Collection Point (Approximate Area)"><span>📍</span></div>`,
         iconSize: [20, 20],
         iconAnchor: [10, 10],
         popupAnchor: [0, -10],
@@ -3128,25 +3226,32 @@ export default function HotspotMap({
 
       const recyclerIcon = L.divIcon({
         className: "custom-leaflet-marker",
-        html: `<div class="center-marker-badge center-marker-recycler" title="Authorized Recycler"><span>🏢</span></div>`,
+        html: `<div class="center-marker-badge center-marker-recycler" title="Authorized Recycler (CPCB/SPCB Listed)"><span>🏢</span></div>`,
         iconSize: [20, 20],
         iconAnchor: [10, 10],
         popupAnchor: [0, -10],
       });
 
       const centers = collectionCentersData as CollectionCenter[];
+      const jittered = getJitteredCenters(centers);
 
-      centers.forEach((center) => {
+      jittered.forEach((center) => {
         const isRecycler = center.kind === "recycler";
-        const marker = L.marker([center.lat, center.lon], {
+        const marker = L.marker([center.displayLat, center.displayLon], {
           icon: isRecycler ? recyclerIcon : pointIcon,
         });
+
+        const destParts = [center.name, center.address, center.city, center.state].filter(Boolean);
+        const destQuery = destParts.length > 0
+          ? encodeURIComponent(destParts.join(", "))
+          : `${center.lat},${center.lon}`;
+        const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destQuery}`;
 
         const popupContent = `
           <div style="font-family: Inter, sans-serif; min-width: 210px; color: #f3f4f6;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
               <span style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 6px; background: ${isRecycler ? 'rgba(14,165,233,0.18)' : 'rgba(245,158,11,0.18)'}; color: ${isRecycler ? '#38bdf8' : '#fbbf24'}; border: 1px solid ${isRecycler ? 'rgba(14,165,233,0.35)' : 'rgba(245,158,11,0.35)'};">
-                ${isRecycler ? '🏢 Authorized Recycler' : '📍 Drop-off Center'}
+                ${isRecycler ? '🏢 CPCB Authorized Recycler' : '📍 Listed Drop-off Center'}
               </span>
               <span style="font-size: 0.72rem; color: #9ca3af; font-weight: 500;">${center.city || ''}</span>
             </div>
@@ -3172,7 +3277,7 @@ export default function HotspotMap({
               </div>
             ` : ''}
             <a
-              href="https://www.google.com/maps/dir/?api=1&destination=${center.lat},${center.lon}"
+              href="${directionsUrl}"
               target="_blank"
               rel="noopener noreferrer"
               style="display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 7px 10px; border-radius: 8px; background: rgba(0,229,160,0.15); border: 1px solid rgba(0,229,160,0.35); color: #00e5a0; text-decoration: none; font-size: 0.8rem; font-weight: 700; margin-top: 4px;"
@@ -3183,17 +3288,10 @@ export default function HotspotMap({
         `;
 
         marker.bindPopup(popupContent);
-        marker.addTo(map);
+        marker.addTo(layer);
       });
     }
-
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
-    };
-  }, [hotspots, markerRadius, showCenters, showHotspots]);
+  }, [showCenters]);
 
   return (
     <div
@@ -3208,20 +3306,16 @@ export default function HotspotMap({
 
 ### 9.7 Future Plans & Engineering Roadmap
 
-1. **Proof of Recycling & EPR Credit Generation**:
-   - Issue verifiable digital transfer receipts whenever an informal collector drops off hazardous or bulk e-waste at an authorized CPCB dismantler.
-   - Recycler validates drop-off via QR code scan, generating verifiable carbon & EPR credits for electronics producers.
-
-2. **Multi-Item Bounding Box Segmentation**:
+1. **Multi-Item Bounding Box Segmentation**:
    - Upgrade from single-label image classification to fine-grained multi-object bounding boxes using Gemini Vision 2.5 Flash, highlighting individual components (e.g., highlighting battery vs. motherboard vs. heatsink separately on the scanned photo).
 
-3. **Background Sync Workers (PWA Phase 2)**:
+2. **Background Sync Workers (PWA Phase 2)**:
    - Leverage the W3C Background Sync API (`SyncManager`) to dispatch IndexedDB queued lots automatically in the background even if the browser tab was closed before network reconnection.
 
-4. **Regional Indian Language Expansion**:
+3. **Regional Indian Language Expansion**:
    - Expand voice synthesizer (TTS) and dictionary coverage from English/Hindi to **Tamil, Telugu, Kannada, Bengali, and Marathi**, empowering informal scrap workers across major metropolitan collection hubs.
 
-5. **Live Scrap Price Index API**:
+4. **Live Scrap Price Index API**:
    - Connect the DynamoDB `PricesTable` to periodic scrap market aggregators and metal commodity indices (MCX / LME spot prices for copper, aluminium, and gold) to maintain real-time automated daily pricing updates.
 
 

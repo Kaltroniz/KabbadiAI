@@ -34,6 +34,40 @@ interface HotspotMapProps {
   showHotspots?: boolean;
 }
 
+// Jitter function: prevents facilities sharing exact city/area center coordinates
+// (e.g., 30 in Jaipur, 10 in Faridabad) from stacking completely on top of each other.
+function getJitteredCenters(centers: CollectionCenter[]): (CollectionCenter & { displayLat: number; displayLon: number })[] {
+  const groups: Record<string, number> = {};
+  centers.forEach((c) => {
+    const key = `${c.lat.toFixed(4)},${c.lon.toFixed(4)}`;
+    groups[key] = (groups[key] || 0) + 1;
+  });
+
+  const groupIndex: Record<string, number> = {};
+
+  return centers.map((c) => {
+    const key = `${c.lat.toFixed(4)},${c.lon.toFixed(4)}`;
+    const totalInGroup = groups[key];
+    const idx = groupIndex[key] || 0;
+    groupIndex[key] = idx + 1;
+
+    if (totalInGroup <= 1) {
+      return { ...c, displayLat: c.lat, displayLon: c.lon };
+    }
+
+    // Deterministic golden-angle spiral distribution (~300m - 1.2km)
+    const angle = idx * 2.399963;
+    const radius = 0.0035 + 0.0022 * Math.sqrt(idx);
+    const latRad = (c.lat * Math.PI) / 180;
+    const cosLat = Math.cos(latRad) || 1;
+
+    const displayLat = c.lat + radius * Math.cos(angle);
+    const displayLon = c.lon + (radius * Math.sin(angle)) / cosLat;
+
+    return { ...c, displayLat, displayLon };
+  });
+}
+
 export default function HotspotMap({
   hotspots,
   markerRadius,
@@ -42,35 +76,87 @@ export default function HotspotMap({
 }: HotspotMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const hotspotLayerRef = useRef<L.LayerGroup | null>(null);
+  const centerLayerRef = useRef<L.LayerGroup | null>(null);
+  const userLayerRef = useRef<L.LayerGroup | null>(null);
+  const hasCenteredOnUserRef = useRef(false);
 
+  // 1. Initialize Map and Tile Layer ONCE
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    // Clean up existing map instance if already initialized
-    if (mapInstanceRef.current) {
-      mapInstanceRef.current.remove();
-      mapInstanceRef.current = null;
-    }
-
-    const center: [number, number] = hotspots.length > 0
+    // Default center (Delhi-NCR or first hotspot if present)
+    const initialCenter: [number, number] = hotspots.length > 0
       ? [hotspots[0].lat, hotspots[0].lon]
-      : [28.61, 77.23];
+      : [28.6139, 77.2090];
 
     const map = L.map(mapContainerRef.current, {
-      center,
+      center: initialCenter,
       zoom: 11,
       scrollWheelZoom: true,
     });
     mapInstanceRef.current = map;
 
-    // 100% free OpenStreetMap tiles with sleek dark mode filter — zero API key required
+    // Dark-mode OpenStreetMap tiles (no API keys required)
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
       className: "dark-map-tiles",
     }).addTo(map);
 
-    // 1. Plot Scanned Lot Hotspots (if enabled)
+    // Create persistent LayerGroups
+    const hotspotLayer = L.layerGroup().addTo(map);
+    const centerLayer = L.layerGroup().addTo(map);
+    const userLayer = L.layerGroup().addTo(map);
+
+    hotspotLayerRef.current = hotspotLayer;
+    centerLayerRef.current = centerLayer;
+    userLayerRef.current = userLayer;
+
+    // Center map on user location if browser geolocation is permitted
+    if (typeof window !== "undefined" && navigator.geolocation && !hasCenteredOnUserRef.current) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!mapInstanceRef.current) return;
+          const { latitude, longitude } = pos.coords;
+          hasCenteredOnUserRef.current = true;
+          mapInstanceRef.current.setView([latitude, longitude], 12);
+
+          const userIcon = L.divIcon({
+            className: "custom-user-marker",
+            html: `<div style="width: 16px; height: 16px; border-radius: 50%; background: #38bdf8; border: 2.5px solid #ffffff; box-shadow: 0 0 14px #38bdf8; animation: pulse 2s infinite;"></div>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+          });
+          L.marker([latitude, longitude], { icon: userIcon })
+            .bindPopup("<div style='font-family: Inter, sans-serif; font-weight: 700; color: #38bdf8;'>📍 Your Current Location</div>")
+            .addTo(userLayer);
+        },
+        () => {
+          // Geolocation unavailable or denied; remain at initial center
+        },
+        { timeout: 6000, maximumAge: 60000 }
+      );
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        hotspotLayerRef.current = null;
+        centerLayerRef.current = null;
+        userLayerRef.current = null;
+      }
+    };
+  }, []); // Run only once on mount
+
+  // 2. Update Hotspot Markers without recreating the map
+  useEffect(() => {
+    const layer = hotspotLayerRef.current;
+    if (!layer) return;
+
+    layer.clearLayers();
+
     if (showHotspots) {
       hotspots.forEach((h) => {
         const radius = markerRadius(h.lot_count);
@@ -99,15 +185,22 @@ export default function HotspotMap({
         `;
 
         circle.bindPopup(popupContent);
-        circle.addTo(map);
+        circle.addTo(layer);
       });
     }
+  }, [hotspots, markerRadius, showHotspots]);
 
-    // 2. Plot Collection Centers & Recyclers with small icons (if enabled)
+  // 3. Update Collection Center Markers with Jitter & Street-Address Directions
+  useEffect(() => {
+    const layer = centerLayerRef.current;
+    if (!layer) return;
+
+    layer.clearLayers();
+
     if (showCenters) {
       const pointIcon = L.divIcon({
         className: "custom-leaflet-marker",
-        html: `<div class="center-marker-badge center-marker-point" title="Drop-off Collection Point"><span>📍</span></div>`,
+        html: `<div class="center-marker-badge center-marker-point" title="Drop-off Collection Point (Approximate Area)"><span>📍</span></div>`,
         iconSize: [20, 20],
         iconAnchor: [10, 10],
         popupAnchor: [0, -10],
@@ -115,25 +208,33 @@ export default function HotspotMap({
 
       const recyclerIcon = L.divIcon({
         className: "custom-leaflet-marker",
-        html: `<div class="center-marker-badge center-marker-recycler" title="Authorized Recycler"><span>🏢</span></div>`,
+        html: `<div class="center-marker-badge center-marker-recycler" title="Authorized Recycler (CPCB/SPCB Listed)"><span>🏢</span></div>`,
         iconSize: [20, 20],
         iconAnchor: [10, 10],
         popupAnchor: [0, -10],
       });
 
       const centers = collectionCentersData as CollectionCenter[];
+      const jittered = getJitteredCenters(centers);
 
-      centers.forEach((center) => {
+      jittered.forEach((center) => {
         const isRecycler = center.kind === "recycler";
-        const marker = L.marker([center.lat, center.lon], {
+        const marker = L.marker([center.displayLat, center.displayLon], {
           icon: isRecycler ? recyclerIcon : pointIcon,
         });
+
+        // Use facility name + street address in directions URL to avoid routing to rough city centers
+        const destParts = [center.name, center.address, center.city, center.state].filter(Boolean);
+        const destQuery = destParts.length > 0
+          ? encodeURIComponent(destParts.join(", "))
+          : `${center.lat},${center.lon}`;
+        const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destQuery}`;
 
         const popupContent = `
           <div style="font-family: Inter, sans-serif; min-width: 210px; color: #f3f4f6;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
               <span style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 6px; background: ${isRecycler ? 'rgba(14,165,233,0.18)' : 'rgba(245,158,11,0.18)'}; color: ${isRecycler ? '#38bdf8' : '#fbbf24'}; border: 1px solid ${isRecycler ? 'rgba(14,165,233,0.35)' : 'rgba(245,158,11,0.35)'};">
-                ${isRecycler ? '🏢 Authorized Recycler' : '📍 Drop-off Center'}
+                ${isRecycler ? '🏢 CPCB Authorized Recycler' : '📍 Listed Drop-off Center'}
               </span>
               <span style="font-size: 0.72rem; color: #9ca3af; font-weight: 500;">${center.city || ''}</span>
             </div>
@@ -159,7 +260,7 @@ export default function HotspotMap({
               </div>
             ` : ''}
             <a
-              href="https://www.google.com/maps/dir/?api=1&destination=${center.lat},${center.lon}"
+              href="${directionsUrl}"
               target="_blank"
               rel="noopener noreferrer"
               style="display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 7px 10px; border-radius: 8px; background: rgba(0,229,160,0.15); border: 1px solid rgba(0,229,160,0.35); color: #00e5a0; text-decoration: none; font-size: 0.8rem; font-weight: 700; margin-top: 4px;"
@@ -170,17 +271,10 @@ export default function HotspotMap({
         `;
 
         marker.bindPopup(popupContent);
-        marker.addTo(map);
+        marker.addTo(layer);
       });
     }
-
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
-    };
-  }, [hotspots, markerRadius, showCenters, showHotspots]);
+  }, [showCenters]);
 
   return (
     <div

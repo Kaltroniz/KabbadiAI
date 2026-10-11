@@ -103,7 +103,7 @@ export default function CameraCapture({
               }}
             >
               <span>✓</span>
-              <span>{t("photoReady") || "Photo Ready"}</span>
+              <span>{t("photoReady")}</span>
             </div>
           </div>
 
@@ -133,7 +133,7 @@ export default function CameraCapture({
             >
               <span style={{ fontSize: "1rem" }}>📷</span>
               <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {t("retakePhoto") || "Change Photo"}
+                {t("retakePhoto")}
               </span>
             </button>
             {onClearCapture && (
@@ -162,7 +162,7 @@ export default function CameraCapture({
               >
                 <span style={{ fontSize: "1rem" }}>🗑</span>
                 <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {t("deletePhoto") || "Delete Photo"}
+                  {t("deletePhoto")}
                 </span>
               </button>
             )}
@@ -198,7 +198,7 @@ export default function CameraCapture({
                 {t("analyzing")}
               </span>
               <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                AI is processing your lot…
+                {t("aiProcessingLot")}
               </span>
             </>
           ) : (
@@ -208,7 +208,7 @@ export default function CameraCapture({
                 {t("takePhoto")}
               </span>
               <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                Tap to take or choose photo
+                {t("tapToScanOrChoose")}
               </span>
             </>
           )}

@@ -1,6 +1,6 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import AuthGuard from "@/components/AuthGuard";
 
@@ -86,7 +86,10 @@ function MapPage() {
   const maxLots = Math.max(...hotspots.map(h => h.lot_count), 1);
   const totalHazardZones = hotspots.filter(h => h.has_hazard).length;
 
-  const markerRadius = (lot_count: number) => Math.max(8, Math.min(32, 8 + (lot_count / maxLots) * 24));
+  const markerRadius = useCallback(
+    (lot_count: number) => Math.max(8, Math.min(32, 8 + (lot_count / maxLots) * 24)),
+    [maxLots]
+  );
 
   if (!mounted) return null;
 
@@ -104,7 +107,7 @@ function MapPage() {
             <div className="logo-icon" style={{ fontSize: 20 }}>🗺️</div>
             <div>
               <h1 className="text-lg font-black gradient-text leading-none">E-Waste Map & Centers</h1>
-              <p className="text-xs leading-none mt-0.5" style={{ color: "var(--text-muted)" }}>Hotspots & 262 Verified Collection Points</p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: "var(--text-muted)" }}>Hotspots & 262 Listed Centers (Approx. Locations)</p>
             </div>
           </div>
           <a
@@ -119,7 +122,7 @@ function MapPage() {
         <div style={{ display: "flex", gap: 8, marginBottom: "1rem" }}>
           <StatPill label="Lots Scanned" value={totalLots} color="#00e5a0" />
           <StatPill label="Hazard Zones" value={totalHazardZones} color="#f87171" />
-          <StatPill label="Centers Marked" value={262} color="#fbbf24" />
+          <StatPill label="Centers Listed" value={262} color="#fbbf24" />
         </div>
 
         {/* Layer Filters */}
@@ -144,7 +147,7 @@ function MapPage() {
             }}
           >
             <span>📍</span>
-            <span>Centers (262)</span>
+            <span>Listed Centers (262)</span>
             <span style={{ fontSize: "10px", opacity: 0.8 }}>{showCenters ? "✓" : ""}</span>
           </button>
           <button
@@ -233,7 +236,7 @@ function MapPage() {
             <div>
               <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--text-primary)" }}>Route Planning Tip</div>
               <p style={{ color: "var(--text-muted)", fontSize: "0.78rem", margin: "2px 0 0" }}>
-                Prioritize <span style={{ color: "#f87171" }}>red zones</span> — they have hazardous materials needing specialized handling. Larger circles = higher lot volume.
+                Prioritize <span style={{ color: "#f87171" }}>red zones</span> — they have hazardous materials needing specialized handling. Pins use approximate city coordinates; tap <b>Get Directions</b> for exact street address routing.
               </p>
             </div>
           </div>

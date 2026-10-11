@@ -3,7 +3,7 @@ Facts (prices, hazard text, recyclers) come from tables and fixed text, never fr
 The model only reads the photo. Tools take no data arguments, so the agent cannot corrupt numbers.
 AGENT_MODE=1 lets a Strands agent choose the order of steps; default (0) runs the same steps
 deterministically. API Gateway HTTP APIs cut requests at 30 s, so measure agent latency first."""
-import base64, json, math, os, re, time, urllib.request, uuid
+import base64, json, math, os, re, time, urllib.parse, urllib.request, uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import boto3
@@ -164,12 +164,12 @@ def _clarify():
 
 def _price():
     rows, lo_t, hi_t = [], 0.0, 0.0
-    user_wt = CTX.get("user_weight_g")
-    if user_wt is not None and user_wt > 0:
-        # distribute user-provided weight proportionally across items by AI-estimated weight
-        ai_total = sum(it["est_weight_g"] for it in CTX["scan"]["items"]) or 1
-        for it in CTX["scan"]["items"]:
-            it["est_weight_g"] = round(user_wt * it["est_weight_g"] / ai_total)
+    uw = CTX.get("user_weight_g")          # validate 1..2_000_000 in the handler
+    if uw:
+        items = CTX["scan"]["items"]
+        tot = sum(i["est_weight_g"] for i in items)
+        for i in items:
+            i["est_weight_g"] = round(uw * ((i["est_weight_g"] / tot) if tot > 0 else 1 / len(items)))
     for it in CTX["scan"]["items"]:
         row = _price_row(it["component"])
         basis = str(row.get("basis", "none"))
@@ -213,6 +213,8 @@ def _recyclers():
                 continue
             d = _km(lat, lon, rlat, rlon)
             kind = r.get("kind", "recycler")
+            dest_parts = [p for p in (r.get("name"), r.get("address"), r.get("city"), r.get("state")) if p]
+            dest_query = urllib.parse.quote(", ".join(dest_parts)) if dest_parts else f"{rlat},{rlon}"
             item = {
                 "id": r.get("id"),
                 "name": r.get("name"),
@@ -221,7 +223,7 @@ def _recyclers():
                 "state": r.get("state"),
                 "kind": kind,
                 "distance_km": round(d, 2),
-                "directions_url": f"https://maps.google.com/maps?daddr={rlat},{rlon}&saddr={lat},{lon}"
+                "directions_url": f"https://www.google.com/maps/dir/?api=1&destination={dest_query}"
             }
             if kind == "collection_point":
                 if r.get("toll_free"):
@@ -342,7 +344,8 @@ def handler(event, context):
         if lat is not None and not (-90 <= lat <= 90 and -180 <= (lon if lon is not None else 0) <= 180):
             return _json(400, {"error": "bad coordinates"})
         user_wt = int(b["user_weight_g"]) if b.get("user_weight_g") is not None else None
-        if user_wt is not None and user_wt < 0: return _json(400, {"error": "bad weight"})
+        if user_wt is not None and not (1 <= user_wt <= 2_000_000):
+            return _json(400, {"error": "bad weight"})
         CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "user_weight_g": user_wt, "lang": str(b.get("language", "en"))[:5], "no_save": b.get("no_save") is True,
                "deadline": time.time() + (context.get_remaining_time_in_millis() / 1000 if context else 29) - 5}
     except Exception:

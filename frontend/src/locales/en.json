@@ -73,5 +73,9 @@
   "retakePhoto": "Change Photo",
   "deletePhoto": "Delete Photo",
   "stepWeight": "Weight",
-  "takePhotoFirst": "Take a photo first to submit"
+  "takePhotoFirst": "Take a photo first to submit",
+  "aiProcessingLot": "AI is processing your lot…",
+  "tapToScanOrChoose": "Tap to take or choose photo",
+  "takePhotoHint": "Take or choose a photo above to enable the submit button",
+  "weightHint": "Optional. Enter the weight of your lot to get accurate valuation calculated by AI."
 }
