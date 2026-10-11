@@ -279,7 +279,17 @@ export default function ResultDisplay({
         <AnimatedPrice lo={lo} hi={hi} />
         <div className="mt-3 flex items-center gap-3 flex-wrap">
           <SpeakBtn text={summary} id="price-listen-btn" />
-          <span className="pill">AI Estimate</span>
+          <span
+            className="pill"
+            style={{
+              background: result.user_weight_provided ? "rgba(0,229,160,0.18)" : "rgba(0,229,160,0.12)",
+              borderColor: result.user_weight_provided ? "rgba(0,229,160,0.5)" : "rgba(0,229,160,0.25)",
+              color: result.user_weight_provided ? "#00e5a0" : "var(--emerald-glow)",
+              fontWeight: 700,
+            }}
+          >
+            {result.user_weight_provided ? "⚖️ Scaled by Your Weight" : "AI Estimated Weight"}
+          </span>
         </div>
         {result.unpriced_items > 0 && <p className="text-sm text-amber-700 mt-3">⚠ {t("excludesUnpriced")} {result.unpriced_items}</p>}
         <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>{t("priceNote")}</p>
@@ -296,6 +306,8 @@ export default function ResultDisplay({
           {(result.line_items || []).map((it: any, i: number) => {
             const total = result.total_max_inr || 1;
             const pct = Math.min(100, ((it.max_inr || 0) / total) * 100);
+            const isPerPiece = it.basis === "per_piece";
+            const isPerKg = it.basis === "per_kg";
             return (
               <div key={i} className="animate-fade-up" style={{ animationDelay: `${i * 0.07}s` }}>
                 <div className="flex items-center gap-3">
@@ -305,7 +317,24 @@ export default function ResultDisplay({
                       {name(it.component)}{" "}
                       <span className="text-sm font-normal" style={{ color: "var(--text-muted)" }}>×{it.count}</span>
                     </div>
-                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>~{it.est_weight_g} g</div>
+                    <div className="text-xs flex items-center gap-1.5 flex-wrap" style={{ color: "var(--text-muted)", marginTop: 2 }}>
+                      <span>~{it.est_weight_g} g</span>
+                      {isPerPiece && (
+                        <span style={{ color: "#38bdf8", fontWeight: 600, background: "rgba(56,189,248,0.12)", padding: "1px 6px", borderRadius: 6, fontSize: "0.68rem" }}>
+                          Per Piece (Fixed unit rate)
+                        </span>
+                      )}
+                      {isPerKg && (
+                        <span style={{ color: "#34d399", fontWeight: 600, background: "rgba(52,211,153,0.12)", padding: "1px 6px", borderRadius: 6, fontSize: "0.68rem" }}>
+                          Per Kg (Scales with weight)
+                        </span>
+                      )}
+                      {it.hazardous && (
+                        <span style={{ color: "#f87171", fontWeight: 600, background: "rgba(248,113,113,0.12)", padding: "1px 6px", borderRadius: 6, fontSize: "0.68rem" }}>
+                          Hazardous (₹0)
+                        </span>
+                      )}
+                    </div>
                     {!it.hazardous && it.priced !== false && (
                       <AnimatedBar percent={pct} />
                     )}
