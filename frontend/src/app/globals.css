@@ -423,6 +423,8 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; font-weight: 800; }
    HEADER
    ============================================================ */
 .app-header {
+  position: relative;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -430,6 +432,7 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; font-weight: 800; }
   padding: 0.85rem 1rem;
   background: rgba(255,255,255,0.04);
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 20px;
   box-shadow: 0 0 40px rgba(0,229,160,0.08), 0 4px 16px rgba(0,0,0,0.3);

@@ -80,16 +80,18 @@ function Home() {
   }, []);
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
       if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
         setShowUserMenu(false);
       }
     }
     if (showUserMenu) {
       document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
     };
   }, [showUserMenu]);
 
@@ -325,7 +327,7 @@ function Home() {
 
       <div className="page-wrapper animate-fade-in">
         {/* ── HEADER ── */}
-        <header className="app-header">
+        <header className="app-header relative z-50">
           <div className="app-logo shrink-0" style={{ gap: 8 }}>
             <div className="logo-icon" style={{ width: 38, height: 38, fontSize: 19 }}>♻</div>
             <div>
@@ -388,7 +390,7 @@ function Home() {
               ?
             </button>
             {/* User Profile & Account Menu */}
-            <div className="relative" ref={userMenuRef}>
+            <div className="relative z-50" ref={userMenuRef}>
               <button
                 id="user-menu-btn"
                 onClick={() => setShowUserMenu(!showUserMenu)}
@@ -446,24 +448,39 @@ function Home() {
 
               {/* Profile Dropdown Popover */}
               {showUserMenu && (
-                <div
-                  className="animate-scale-pop"
-                  style={{
-                    position: "absolute",
-                    top: "calc(100% + 10px)",
-                    right: 0,
-                    width: 290,
-                    maxWidth: "calc(100vw - 32px)",
-                    background: "rgba(14, 21, 23, 0.97)",
-                    backdropFilter: "blur(24px)",
-                    WebkitBackdropFilter: "blur(24px)",
-                    border: "1px solid rgba(255, 255, 255, 0.12)",
-                    borderRadius: 22,
-                    padding: "16px",
-                    boxShadow: "0 24px 50px rgba(0, 0, 0, 0.75), 0 0 30px rgba(0, 229, 160, 0.08)",
-                    zIndex: 100,
-                  }}
-                >
+                <>
+                  {/* Backdrop overlay catching outside taps and establishing clear depth */}
+                  <div
+                    style={{
+                      position: "fixed",
+                      inset: 0,
+                      zIndex: 999,
+                      background: "rgba(0, 0, 0, 0.35)",
+                      backdropFilter: "blur(2px)",
+                      WebkitBackdropFilter: "blur(2px)",
+                    }}
+                    onClick={() => setShowUserMenu(false)}
+                    aria-hidden="true"
+                  />
+                  <div
+                    className="animate-scale-pop"
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 10px)",
+                      right: 0,
+                      width: 290,
+                      maxWidth: "calc(100vw - 32px)",
+                      background: "rgba(14, 21, 23, 0.98)",
+                      backdropFilter: "blur(24px)",
+                      WebkitBackdropFilter: "blur(24px)",
+                      border: "1.5px solid rgba(0, 229, 160, 0.35)",
+                      borderRadius: 22,
+                      padding: "16px",
+                      boxShadow: "0 24px 60px rgba(0, 0, 0, 0.9), 0 0 40px rgba(0, 229, 160, 0.18)",
+                      zIndex: 1000,
+                      transformOrigin: "top right",
+                    }}
+                  >
                   {/* Profile Header */}
                   <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 12 }}>
                     <div style={{
@@ -621,6 +638,7 @@ function Home() {
                     <span>Sign Out</span>
                   </button>
                 </div>
+                </>
               )}
             </div>
           </div>
