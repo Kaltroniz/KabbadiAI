@@ -226,8 +226,9 @@ function AuthForm() {
       }}>
         {/* Logo / brand */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: "2rem" }}>
-          <div className="logo-icon animate-float" style={{ width: 64, height: 64, fontSize: 30, marginBottom: 14, boxShadow: "0 0 40px rgba(0,229,160,0.35)" }}>
-            ♻
+          <div className="logo-icon animate-float overflow-hidden p-1.5 flex items-center justify-center" style={{ width: 64, height: 64, marginBottom: 14, boxShadow: "0 0 40px rgba(0,229,160,0.35)" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon-192.png" alt="KabadiAI" className="w-full h-full object-contain rounded-xl" />
           </div>
           <h1 className="gradient-text" style={{ fontFamily: "Outfit,sans-serif", fontWeight: 900, fontSize: "2rem", margin: 0, lineHeight: 1 }}>
             KabadiAI

@@ -8,7 +8,11 @@ export const metadata: Metadata = {
   title: "KabadiAI – e-Waste Intelligence",
   description: "For kabadiwalas: know what your e-waste lot is, what it is worth, and where to deliver it safely.",
   manifest: "/manifest.json",
-  icons: { apple: "/icon.png" },
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/icon-192.png",
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {

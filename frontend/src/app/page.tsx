@@ -328,7 +328,10 @@ function Home() {
         {/* ── HEADER ── */}
         <header className="app-header relative z-50">
           <div className="app-logo shrink-0" style={{ gap: 8 }}>
-            <div className="logo-icon" style={{ width: 38, height: 38, fontSize: 19 }}>♻</div>
+            <div className="logo-icon overflow-hidden p-1 flex items-center justify-center" style={{ width: 38, height: 38 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icon-192.png" alt="KabadiAI" className="w-full h-full object-contain rounded-lg" />
+            </div>
             <div>
               <div className="flex items-center gap-1.5">
                 <h1 className="text-lg font-black gradient-text leading-none">{t("title")}</h1>
