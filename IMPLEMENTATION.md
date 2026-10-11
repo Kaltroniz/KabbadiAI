@@ -12,9 +12,11 @@ KabadiAI is a multilingual mobile web app (PWA) designed to combat e-waste. User
 
 ---
 
-## 2. Architecture Stack
-* **Frontend:** Next.js 14, TailwindCSS v3.4, React Context (for multilingual strings), and PWA Manifest.
-* **Backend:** AWS Serverless Application Model (SAM).
+## 2. Architecture Stack & Live AWS Endpoints
+* **Frontend:** Next.js 14, TailwindCSS v3.4, React Context (multilingual strings), and PWA Manifest.
+  * **Live Hosted Frontend:** [https://main.d33iyw8b7i40jw.amplifyapp.com](https://main.d33iyw8b7i40jw.amplifyapp.com) (AWS Amplify Hosting)
+* **Backend:** AWS Serverless Application Model (SAM) with Python Lambdas.
+  * **Live API Gateway:** `https://jvysfh6bc0.execute-api.us-east-1.amazonaws.com` (AWS HTTP API)
 * **Database:** Amazon DynamoDB (Tables: `PricesTable`, `RecyclersTable`, `LotsTable`, `PickupsTable`, `UsersTable`).
 * **AI Engine & Orchestration:** Google Gemini 3.5 Flash (via direct REST API) with AWS Bedrock (`amazon.nova-2-lite-v1:0`) fallback; deterministic multi-step Lambda pipeline with optional Strands Agent coordination mode.
 

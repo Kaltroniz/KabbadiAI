@@ -193,17 +193,6 @@ export default function ResultDisplay({
   const hazardSpeech = [...hazardTexts, codes.length ? t("g_general") : ""].filter(Boolean).join(" ");
   const summary = `${t("indicativeValue")}: ₹${lo} ${t("to")} ₹${hi}.`;
 
-  const VERDICT: Record<string, [string, string, string]> = {
-    low:  ["verdictLow",  "rgba(127,0,0,0.5)",   "😟"],
-    fair: ["verdictFair", "rgba(4,100,60,0.5)",   "🙂"],
-    high: ["verdictHigh", "rgba(3,60,110,0.5)",   "🤔"],
-  };
-  const VERDICT_GLOW: Record<string, string> = {
-    low:  "rgba(220,38,38,0.3)",
-    fair: "rgba(0,229,160,0.25)",
-    high: "rgba(56,189,248,0.25)",
-  };
-
   const shareText = [
     `KabadiAI: ${summary}`,
     ...(result.line_items || []).map((i: any) => `${name(i.component)} x${i.count}: ~${i.est_weight_g} g`),

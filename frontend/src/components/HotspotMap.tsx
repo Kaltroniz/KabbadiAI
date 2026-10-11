@@ -148,6 +148,7 @@ export default function HotspotMap({
         userLayerRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run only once on mount
 
   // 2. Update Hotspot Markers without recreating the map

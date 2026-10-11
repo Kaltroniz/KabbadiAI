@@ -8,6 +8,8 @@ __pycache__/
 node_modules/
 .next/
 accuracy_results.csv
+*.zip
+frontend/out/
 # test photos may carry GPS data in EXIF: keep them out of the public repo
 /photos/
 /testphotos/
