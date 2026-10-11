@@ -71,6 +71,7 @@
   "submitToAi": "Submit to AI",
   "photoReady": "Photo Ready",
   "retakePhoto": "Change Photo",
+  "deletePhoto": "Delete Photo",
   "stepWeight": "Weight",
   "takePhotoFirst": "Take a photo first to submit"
 }

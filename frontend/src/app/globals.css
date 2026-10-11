@@ -427,7 +427,7 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; font-weight: 800; }
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1.5rem;
-  padding: 1rem 1.25rem;
+  padding: 0.85rem 1rem;
   background: rgba(255,255,255,0.04);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255,255,255,0.08);

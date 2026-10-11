@@ -107,31 +107,63 @@ export default function CameraCapture({
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <div style={{ display: "flex", gap: 10, marginTop: 12, width: "100%" }}>
             <button
               type="button"
               id="retake-photo-btn"
               onClick={() => { speak(t("takePhoto")); ref.current?.click(); }}
-              className="btn btn-ghost !min-h-0 !py-2.5 !px-4 text-xs font-bold"
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              style={{
+                flex: "1 1 0%",
+                minWidth: 0,
+                height: 44,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                borderRadius: 14,
+                background: "rgba(0, 229, 160, 0.1)",
+                border: "1px solid rgba(0, 229, 160, 0.3)",
+                color: "#00e5a0",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                padding: "0 10px",
+                transition: "all 0.18s",
+              }}
             >
-              <span>📷</span>
-              <span>{t("retakePhoto") || "Change Photo"}</span>
+              <span style={{ fontSize: "1rem" }}>📷</span>
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {t("retakePhoto") || "Change Photo"}
+              </span>
             </button>
             {onClearCapture && (
               <button
                 type="button"
                 id="clear-photo-btn"
                 onClick={onClearCapture}
-                className="btn btn-ghost !min-h-0 !py-2.5 !px-3 text-xs font-bold"
                 style={{
-                  color: "#fca5a5",
-                  borderColor: "rgba(239, 68, 68, 0.3)",
+                  flex: "1 1 0%",
+                  minWidth: 0,
+                  height: 44,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  borderRadius: 14,
                   background: "rgba(239, 68, 68, 0.1)",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  color: "#fca5a5",
+                  fontSize: "0.82rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  padding: "0 10px",
+                  transition: "all 0.18s",
                 }}
-                title="Remove photo"
               >
-                🗑
+                <span style={{ fontSize: "1rem" }}>🗑</span>
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {t("deletePhoto") || "Delete Photo"}
+                </span>
               </button>
             )}
           </div>

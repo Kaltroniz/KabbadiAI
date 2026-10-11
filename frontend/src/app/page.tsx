@@ -326,36 +326,37 @@ function Home() {
       <div className="page-wrapper animate-fade-in">
         {/* ── HEADER ── */}
         <header className="app-header">
-          <div className="app-logo">
-            <div className="logo-icon">♻</div>
+          <div className="app-logo shrink-0" style={{ gap: 8 }}>
+            <div className="logo-icon" style={{ width: 38, height: 38, fontSize: 19 }}>♻</div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-black gradient-text leading-none">{t("title")}</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-lg font-black gradient-text leading-none">{t("title")}</h1>
                 {!isOnline && (
-                  <span className="pill !text-[11px] !px-2 !py-0.5" style={{ background: "rgba(251,191,36,0.15)", borderColor: "rgba(251,191,36,0.35)", color: "#fbbf24" }}>
+                  <span className="pill !text-[10px] !px-1.5 !py-0.5" style={{ background: "rgba(251,191,36,0.15)", borderColor: "rgba(251,191,36,0.35)", color: "#fbbf24" }}>
                     Offline
                   </span>
                 )}
               </div>
-              <p className="text-xs text-muted leading-none mt-0.5">e-Waste Intelligence</p>
+              <p className="text-[11px] text-muted leading-none mt-0.5">e-Waste Intelligence</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             {queueCount > 0 && (
               <button
                 onClick={() => { refreshQueue(); setShowQueueModal(true); }}
                 id="sync-queue-btn"
-                className="btn btn-gold !min-h-0 !rounded-2xl px-3 py-1.5 text-xs font-bold !w-auto flex items-center gap-1.5"
+                className="btn btn-gold !min-h-0 !rounded-xl px-2.5 py-1 text-xs font-bold !w-auto flex items-center gap-1"
                 title="View offline queue"
               >
                 <span>📦</span>
-                <span>Queue ({queueCount})</span>
+                <span>({queueCount})</span>
               </button>
             )}
             <a
               href="/map"
               id="map-link"
-              className="btn btn-ghost !min-h-0 !rounded-xl px-3 py-2 text-sm !w-auto flex items-center gap-1 no-underline"
+              className="btn btn-ghost !min-h-0 !rounded-xl text-sm no-underline flex items-center justify-center"
+              style={{ width: 34, height: 34, padding: 0 }}
               title="Hotspot Map"
             >
               🗺
@@ -363,7 +364,9 @@ function Home() {
             <a
               href="/insights"
               id="insights-link"
-              className="btn btn-ghost !min-h-0 !rounded-xl px-4 py-2 text-sm !w-auto flex items-center gap-1 no-underline"
+              className="btn btn-ghost !min-h-0 !rounded-xl px-2.5 text-xs !w-auto flex items-center gap-1 no-underline"
+              style={{ height: 34 }}
+              title="Insights"
             >
               📊 <span>Insights</span>
             </a>
@@ -371,10 +374,15 @@ function Home() {
               onClick={() => speak(t("help"))}
               aria-label="Help"
               id="help-btn"
-              className="w-12 h-12 rounded-full flex items-center justify-center text-xl font-black !min-h-0"
+              className="rounded-full flex items-center justify-center text-sm font-black !min-h-0"
               style={{
+                width: 34,
+                height: 34,
                 background: "linear-gradient(135deg,#fcd34d,#f59e0b)",
-                boxShadow: "0 0 20px rgba(245,158,11,0.35)",
+                boxShadow: "0 0 16px rgba(245,158,11,0.35)",
+                border: "none",
+                cursor: "pointer",
+                color: "#1a0f00",
               }}
             >
               ?
@@ -392,8 +400,8 @@ function Home() {
                   background: showUserMenu ? "rgba(0,229,160,0.14)" : "rgba(255,255,255,0.06)",
                   border: `1.5px solid ${showUserMenu ? "rgba(0,229,160,0.55)" : "rgba(255,255,255,0.12)"}`,
                   borderRadius: "50%",
-                  width: 44,
-                  height: 44,
+                  width: 36,
+                  height: 36,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -404,8 +412,8 @@ function Home() {
                 }}
               >
                 <div style={{
-                  width: 36,
-                  height: 36,
+                  width: 30,
+                  height: 30,
                   borderRadius: "50%",
                   overflow: "hidden",
                   display: "flex",
@@ -417,7 +425,7 @@ function Home() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : (
-                    <span style={{ fontSize: "1.05rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
+                    <span style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
                       {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
                     </span>
                   )}
@@ -425,14 +433,14 @@ function Home() {
                 {/* Active indicator dot */}
                 <span style={{
                   position: "absolute",
-                  bottom: 1,
-                  right: 1,
-                  width: 10,
-                  height: 10,
+                  bottom: 0,
+                  right: 0,
+                  width: 9,
+                  height: 9,
                   borderRadius: "50%",
                   background: "#00e5a0",
-                  border: "2px solid #0f1717",
-                  boxShadow: "0 0 6px #00e5a0",
+                  border: "1.5px solid #0f1717",
+                  boxShadow: "0 0 5px #00e5a0",
                 }} />
               </button>
 
