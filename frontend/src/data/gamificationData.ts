@@ -96,7 +96,7 @@ export const ALL_BADGES: Badge[] = [
   { id: "toxin_terminator", category: "safety", name: "Toxin Terminator", hindiName: "विषनाशक", description: "Prevent lead, acid, and mercury contamination", rarity: "epic", icon: "☣️", xp: 1200 },
 
   // Community & Social (5)
-  { id: "neighborhood_hero", category: "community", name: "Neighborhood Hero", hindiName: "मोहल्ला नायक", description: "Post or accept a bulk pickup alert on community board", rarity: "common", icon: "🚛", xp: 250 },
+  { id: "neighborhood_hero", category: "community", name: "Neighborhood Hero", hindiName: "मोहल्ला नायक", description: "Complete a verified e-waste handover in your community", rarity: "common", icon: "🤝", xp: 250 },
   { id: "whatsapp_warrior", category: "community", name: "WhatsApp Warrior", hindiName: "व्हाट्सएप योद्धा", description: "Share 5 verified appraisals with local kabadiwalas", rarity: "uncommon", icon: "💬", xp: 350 },
   { id: "recruiter", category: "community", name: "Green Ambassador", hindiName: "हरित राजदूत", description: "Invite friends who complete their first scan", rarity: "rare", icon: "🤝", xp: 600 },
   { id: "society_captain", category: "community", name: "Society Captain", hindiName: "सोसायटी कप्तान", description: "Organize society-level electronic cleanup drive", rarity: "epic", icon: "🏘️", xp: 1200 },
@@ -193,7 +193,7 @@ export const STORY_QUESTS: StoryQuest[] = [
     icon: "🏘️",
     total_xp: 1500,
     steps: [
-      { id: "step_pickup", text: "Post or review a bulk pickup alert on the board", reward_xp: 300 },
+      { id: "step_pickup", text: "Discover verified recycling centers on the Hotspot map", reward_xp: 300 },
       { id: "step_hotspot", text: "Explore neighborhood hotzones on the Leaflet map", reward_xp: 400 },
       { id: "step_refer", text: "Share your referral link with a neighbor or colleague", reward_xp: 800 },
     ],

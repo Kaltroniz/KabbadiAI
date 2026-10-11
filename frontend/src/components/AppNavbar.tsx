@@ -46,7 +46,6 @@ export default function AppNavbar({
   const desktopNavLinks = [
     { href: "/", label: "Scanner", icon: "📸" },
     { href: "/map", label: "Map", icon: "🗺️" },
-    { href: "/pickups", label: "Pickups", icon: "🚛" },
     { href: "/insights", label: "Insights", icon: "📊" },
     { href: "/leaderboard", label: "Ranks", icon: "🏆" },
     { href: "/quests", label: "Quests", icon: "📜" },
@@ -94,13 +93,6 @@ export default function AppNavbar({
           className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
         >
           <span className="text-sm">🗺️</span> Hotspot Map & 262 Centers
-        </Link>
-        <Link
-          href="/pickups"
-          onClick={() => setShowUserMenu(false)}
-          className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
-        >
-          <span className="text-sm">🚛</span> Bulk Pickup Alerts
         </Link>
         <Link
           href="/insights"
@@ -192,7 +184,7 @@ export default function AppNavbar({
       }}
     >
       {/* ─── DESKTOP NAVBAR (md and up) ─── */}
-      <div className="hidden md:flex items-center justify-between gap-2 lg:gap-3 w-full min-w-0">
+      <div className="hidden md:flex items-center justify-between gap-3 w-full min-w-0">
         {/* Brand Logo */}
         <Link href="/" className="app-logo shrink-0 no-underline text-inherit flex items-center gap-2">
           <div
@@ -217,8 +209,12 @@ export default function AppNavbar({
           </div>
         </Link>
 
-        {/* Center Nav Links */}
-        <nav className="flex items-center gap-1 px-1.5 py-1 rounded-2xl bg-white/5 border border-white/10 shrink-0" aria-label="Desktop Navigation">
+        {/* Integrated Navigation & Player Profile Capsule */}
+        <nav
+          className="flex items-center gap-1 lg:gap-1.5 p-1 rounded-2xl bg-white/5 border border-white/10 shrink-0"
+          aria-label="Desktop Navigation"
+        >
+          {/* Main Navigation Links */}
           {desktopNavLinks.map((link) => {
             const isActive = pathname === link.href;
             return (
@@ -237,16 +233,16 @@ export default function AppNavbar({
               </Link>
             );
           })}
-        </nav>
 
-        {/* Right Section: Player Pill, Voice Help, User Menu */}
-        <div className="flex items-center gap-1.5 lg:gap-2 shrink-0">
+          {/* Clean Vertical Divider */}
+          <div className="h-5 w-[1px] bg-white/15 mx-0.5 shrink-0" />
+
           {/* Offline Queue Badge Button */}
           {queueCount > 0 && onOpenQueue && (
             <button
               onClick={onOpenQueue}
               id="sync-queue-btn"
-              className="btn btn-gold !min-h-0 !h-8 !w-auto px-2.5 text-xs font-bold flex items-center gap-1 rounded-xl"
+              className="btn btn-gold !min-h-0 !h-8 !w-auto px-2.5 text-xs font-bold flex items-center gap-1 rounded-xl shrink-0"
               title="View offline queue"
             >
               <span>📦</span>
@@ -275,12 +271,12 @@ export default function AppNavbar({
             </span>
           </Link>
 
-          {/* Modern Voice Guide Button */}
+          {/* Voice Guide Audio Button */}
           <button
             onClick={() => speak(t("help"))}
             aria-label="Listen to voice guide"
             id="help-btn"
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-sm transition-all text-emerald-300 hover:text-white hover:border-emerald-400 !min-h-0 shrink-0"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-sm transition-all text-emerald-300 hover:text-white hover:border-emerald-400 !min-h-0 shrink-0 cursor-pointer"
             style={{
               background: "rgba(0, 229, 160, 0.08)",
               border: "1.5px solid rgba(0, 229, 160, 0.28)",
@@ -290,22 +286,22 @@ export default function AppNavbar({
             🔊
           </button>
 
-          {/* User Profile / Modern Sign In Button */}
+          {/* User Profile Button with Anchored Dropdown Menu */}
           {user ? (
-            <div className="relative z-50" ref={desktopMenuRef}>
+            <div className="relative z-50 shrink-0" ref={desktopMenuRef}>
               <button
                 id="user-menu-btn"
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 aria-expanded={showUserMenu}
                 aria-label="Account details and sign out"
-                className="flex items-center gap-2 p-1 pl-2 pr-3 rounded-2xl transition-all !min-h-0 cursor-pointer"
+                className="flex items-center gap-1.5 p-1 pl-1.5 pr-2.5 rounded-xl transition-all !min-h-0 cursor-pointer"
                 style={{
-                  background: showUserMenu ? "rgba(0,229,160,0.18)" : "rgba(255,255,255,0.06)",
-                  border: `1.5px solid ${showUserMenu ? "rgba(0,229,160,0.5)" : "rgba(255,255,255,0.12)"}`,
+                  background: showUserMenu ? "rgba(0,229,160,0.22)" : "rgba(255,255,255,0.08)",
+                  border: `1.5px solid ${showUserMenu ? "rgba(0,229,160,0.5)" : "rgba(255,255,255,0.14)"}`,
                 }}
               >
                 <div
-                  className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-emerald-950/60 text-emerald-300 font-black text-xs border border-emerald-500/40 shrink-0"
+                  className="w-6 h-6 rounded-full overflow-hidden flex items-center justify-center bg-emerald-950/80 text-emerald-300 font-black text-xs border border-emerald-500/40 shrink-0"
                 >
                   {user.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -314,7 +310,7 @@ export default function AppNavbar({
                     (user.name || user.email || "?")[0].toUpperCase()
                   )}
                 </div>
-                <span className="text-xs font-bold text-white max-w-[100px] truncate font-outfit">
+                <span className="text-xs font-bold text-white max-w-[90px] truncate font-outfit">
                   {user.name?.split(" ")[0] || "Account"}
                 </span>
                 <span className="text-[10px] text-muted">▾</span>
@@ -327,7 +323,7 @@ export default function AppNavbar({
             <Link
               href="/auth/"
               id="sign-in-btn"
-              className="flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-black text-emerald-300 no-underline transition-all hover:scale-103 !min-h-0"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black text-emerald-300 no-underline transition-all hover:scale-103 !min-h-0 shrink-0"
               style={{
                 background: "linear-gradient(135deg, rgba(0, 229, 160, 0.16), rgba(16, 185, 129, 0.08))",
                 border: "1.5px solid rgba(0, 229, 160, 0.4)",
@@ -338,7 +334,7 @@ export default function AppNavbar({
               <span>Sign In</span>
             </Link>
           )}
-        </div>
+        </nav>
       </div>
 
       {/* ─── MOBILE NAVBAR (< md) ─── */}
@@ -467,17 +463,6 @@ export default function AppNavbar({
           >
             <span>🗺️</span>
             <span>Map</span>
-          </Link>
-          <Link
-            href="/pickups"
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
-              pathname === "/pickups"
-                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
-                : "bg-white/5 text-muted hover:text-white border border-white/10"
-            }`}
-          >
-            <span>🚛</span>
-            <span>Pickups</span>
           </Link>
           <Link
             href="/insights"

@@ -21,9 +21,9 @@ export default function MobileBottomNav() {
       badge: null,
     },
     {
-      href: "/pickups",
-      label: "Pickups",
-      icon: "🚛",
+      href: "/leaderboard",
+      label: "Ranks",
+      icon: "🏆",
       isPrimary: false,
       badge: null,
     },
