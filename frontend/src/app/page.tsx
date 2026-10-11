@@ -9,9 +9,7 @@ import { useLanguage, LANGS } from "@/contexts/LanguageContext";
 import { useGamification } from "@/contexts/GamificationContext";
 import FloatingXPNotification from "@/components/gamification/FloatingXPNotification";
 import BadgeUnlockModal from "@/components/gamification/BadgeUnlockModal";
-import CardUnlockModal from "@/components/gamification/CardUnlockModal";
 import LevelUpModal from "@/components/gamification/LevelUpModal";
-import LuckySpinModal from "@/components/gamification/LuckySpinModal";
 import DailyChallengesWidget from "@/components/gamification/DailyChallengesWidget";
 import { get, set } from "idb-keyval";
 import {
@@ -582,9 +580,7 @@ function Home() {
       {/* ── GAMIFICATION CELEBRATION MODALS ── */}
       <FloatingXPNotification />
       <BadgeUnlockModal />
-      <CardUnlockModal />
       <LevelUpModal />
-      <LuckySpinModal />
 
       {/* ── OFFLINE QUEUE MODAL ── */}
       {showQueueModal && (

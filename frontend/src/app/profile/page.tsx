@@ -8,9 +8,7 @@ import BadgesGallery from "@/components/gamification/BadgesGallery";
 import XPNavBar from "@/components/gamification/XPNavBar";
 import FloatingXPNotification from "@/components/gamification/FloatingXPNotification";
 import BadgeUnlockModal from "@/components/gamification/BadgeUnlockModal";
-import CardUnlockModal from "@/components/gamification/CardUnlockModal";
 import LevelUpModal from "@/components/gamification/LevelUpModal";
-import LuckySpinModal from "@/components/gamification/LuckySpinModal";
 
 export default function ProfilePage() {
   const {
@@ -30,9 +28,7 @@ export default function ProfilePage() {
     <>
       <FloatingXPNotification />
       <BadgeUnlockModal />
-      <CardUnlockModal />
       <LevelUpModal />
-      <LuckySpinModal />
 
       <div className="page-wrapper animate-fade-in max-w-4xl mx-auto px-4 py-5 flex flex-col gap-6">
         {/* Header */}
@@ -77,6 +73,31 @@ export default function ProfilePage() {
             )}
           </div>
         </header>
+
+        {/* Guest prompt banner if not logged in */}
+        {!user && (
+          <div
+            className="card p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left animate-fade-up"
+            style={{
+              background: "linear-gradient(135deg, rgba(0,229,160,0.12), rgba(16,185,129,0.04))",
+              border: "1.5px solid rgba(0,229,160,0.35)",
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">👤</span>
+              <div>
+                <h3 className="text-sm font-black text-white font-outfit">Sign in to save your level progression & stats</h3>
+                <p className="text-xs text-muted">Level up and circular badges are tied to your personal account.</p>
+              </div>
+            </div>
+            <Link
+              href="/auth/"
+              className="btn btn-primary !min-h-0 !h-9 px-4 text-xs font-black rounded-xl no-underline shrink-0"
+            >
+              Sign In / Sign Up
+            </Link>
+          </div>
+        )}
 
         {/* User Status Card */}
         <div

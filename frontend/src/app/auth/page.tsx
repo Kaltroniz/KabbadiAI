@@ -122,11 +122,11 @@ function GoogleBtn({ onSuccess, disabled }: { onSuccess: (credential: string) =>
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────── */
-function Divider() {
+function Divider({ text = "OR" }: { text?: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "1.25rem 0" }}>
       <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.10)" }} />
-      <span style={{ color: "rgba(200,235,220,0.4)", fontSize: "0.75rem", fontWeight: 600 }}>OR</span>
+      <span style={{ color: "rgba(200,235,220,0.4)", fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.05em" }}>{text}</span>
       <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.10)" }} />
     </div>
   );
@@ -273,7 +273,7 @@ function AuthForm() {
                   boxShadow: mode === m ? "0 0 20px rgba(0,229,160,0.3)" : "none",
                 }}
               >
-                {m === "login" ? "Sign In" : "Register"}
+                {m === "login" ? "Sign In" : "Sign Up"}
               </button>
             ))}
           </div>
@@ -282,7 +282,19 @@ function AuthForm() {
           {GOOGLE_CLIENT_ID ? (
             <>
               <GoogleBtn onSuccess={handleGoogle} disabled={busy} />
-              <Divider />
+              <p
+                style={{
+                  fontSize: "0.74rem",
+                  color: "rgba(200, 235, 220, 0.65)",
+                  textAlign: "center",
+                  marginTop: "0.6rem",
+                  marginBottom: 0,
+                  lineHeight: 1.4,
+                }}
+              >
+                ⚡ <strong>One-click sign up:</strong> Google automatically creates or signs into your account (no password needed).
+              </p>
+              <Divider text={mode === "login" ? "OR SIGN IN WITH EMAIL" : "OR SIGN UP WITH EMAIL"} />
             </>
           ) : null}
 

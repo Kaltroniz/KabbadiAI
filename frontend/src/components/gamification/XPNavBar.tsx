@@ -2,14 +2,28 @@
 import React from "react";
 import Link from "next/link";
 import { useGamification } from "@/contexts/GamificationContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function XPNavBar() {
-  const {
-    level,
-    streak,
-    isLuckySpinAvailable,
-    openLuckySpin,
-  } = useGamification();
+  const { user } = useAuth();
+  const { level, streak } = useGamification();
+
+  if (!user) {
+    return (
+      <Link
+        href="/auth/"
+        className="flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold text-emerald-300 no-underline transition-all hover:scale-102 shrink-0 whitespace-nowrap"
+        style={{
+          background: "linear-gradient(135deg, rgba(0,229,160,0.12), rgba(16,185,129,0.06))",
+          border: "1px solid rgba(0,229,160,0.3)",
+        }}
+        title="Sign in to activate level and rank"
+      >
+        <span>👤</span>
+        <span>Sign In</span>
+      </Link>
+    );
+  }
 
   return (
     <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
@@ -35,24 +49,6 @@ export default function XPNavBar() {
           <span>{streak}d</span>
         </span>
       </Link>
-
-      {/* Mini Lucky Spin Button if ready */}
-      {isLuckySpinAvailable && (
-        <button
-          onClick={openLuckySpin}
-          className="!min-h-0 !h-7 px-2 rounded-lg font-black text-[11px] flex items-center gap-1 animate-bounce shrink-0"
-          style={{
-            background: "linear-gradient(135deg, #ec4899, #8b5cf6)",
-            border: "1px solid rgba(236,72,153,0.5)",
-            boxShadow: "0 0 12px rgba(236,72,153,0.4)",
-            color: "#fff",
-          }}
-          title="Free Lucky Spin ready! Win up to 500 bonus XP!"
-        >
-          <span>🎰</span>
-          <span className="hidden xs:inline">Spin</span>
-        </button>
-      )}
     </div>
   );
 }

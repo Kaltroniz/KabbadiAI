@@ -1,8 +1,10 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useGamification } from "@/contexts/GamificationContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 const ICON: Record<string, string> = {
   motherboard: "🧩", ram_stick: "💾", mobile_pcb: "📱", li_ion_battery: "🔋", alkaline_battery: "🪫",
@@ -65,6 +67,7 @@ export default function ResultDisplay({
 }) {
   const { t, speak } = useLanguage();
   const { level } = useGamification();
+  const { user } = useAuth();
   const name = (c: string) => { const v = t("c_" + c); return v === "c_" + c ? c.replace(/_/g, " ") : v; };
 
   const SpeakBtn = ({ text, id }: { text: string; id: string }) => (
@@ -288,6 +291,32 @@ export default function ResultDisplay({
         {result.unpriced_items > 0 && <p className="text-sm text-amber-700 mt-3">⚠ {t("excludesUnpriced")} {result.unpriced_items}</p>}
         <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>{t("priceNote")}</p>
       </div>
+
+      {/* Guest Sign-In Encouragement */}
+      {!user && (
+        <div
+          className="rounded-2xl p-3.5 flex items-center justify-between gap-3 animate-fade-up"
+          style={{
+            background: "linear-gradient(135deg, rgba(0,229,160,0.12), rgba(16,185,129,0.06))",
+            border: "1.5px solid rgba(0,229,160,0.35)",
+            boxShadow: "0 4px 20px rgba(0,229,160,0.08)",
+          }}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-2xl shrink-0">🌱</span>
+            <div className="min-w-0">
+              <h4 className="text-xs font-black text-white font-outfit">Want to Level Up & Save Your XP?</h4>
+              <p className="text-[11px] text-muted truncate">Sign in or sign up to save your recycling score and rank up!</p>
+            </div>
+          </div>
+          <Link
+            href="/auth/"
+            className="btn btn-primary !min-h-0 !h-8 px-3 text-xs font-black rounded-xl no-underline shrink-0"
+          >
+            Sign In
+          </Link>
+        </div>
+      )}
 
       {/* Environmental Impact of This Lot */}
       {result.environmental_impact && (

@@ -5,18 +5,14 @@ import LeaderboardView from "@/components/gamification/LeaderboardView";
 import XPNavBar from "@/components/gamification/XPNavBar";
 import FloatingXPNotification from "@/components/gamification/FloatingXPNotification";
 import BadgeUnlockModal from "@/components/gamification/BadgeUnlockModal";
-import CardUnlockModal from "@/components/gamification/CardUnlockModal";
 import LevelUpModal from "@/components/gamification/LevelUpModal";
-import LuckySpinModal from "@/components/gamification/LuckySpinModal";
 
 export default function LeaderboardPage() {
   return (
     <>
       <FloatingXPNotification />
       <BadgeUnlockModal />
-      <CardUnlockModal />
       <LevelUpModal />
-      <LuckySpinModal />
 
       <div className="page-wrapper animate-fade-in max-w-4xl mx-auto px-4 py-5 flex flex-col gap-6">
         {/* Header */}

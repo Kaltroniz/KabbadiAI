@@ -3,10 +3,12 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useGamification } from "@/contexts/GamificationContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function MobileBottomNav() {
   const pathname = usePathname();
   const { streak } = useGamification();
+  const { user } = useAuth();
 
   if (pathname && (pathname.startsWith("/auth") || pathname.startsWith("/login"))) {
     return null;
@@ -46,7 +48,7 @@ export default function MobileBottomNav() {
       label: "Profile",
       icon: "👤",
       isPrimary: false,
-      badge: streak > 1 ? `🔥${streak}d` : null,
+      badge: user && streak > 1 ? `🔥${streak}d` : null,
     },
   ];
 

@@ -4,7 +4,6 @@ import React, { createContext, useContext, useEffect, useState, useCallback, Rea
 import {
   LEVEL_TIERS,
   ALL_BADGES,
-  COLLECTIBLE_CARDS,
   STORY_QUESTS,
   INITIAL_CHALLENGES,
   Badge,
@@ -13,8 +12,8 @@ import {
   StoryQuest,
   Challenge,
 } from "@/data/gamificationData";
+import { useAuth } from "@/contexts/AuthContext";
 
-const STORAGE_KEY = "kabadiai_gamification_v2";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export interface EnvironmentalImpact {
@@ -51,6 +50,7 @@ interface GamificationCtx {
   celebrationLevel: LevelTier | null;
   isLuckySpinAvailable: boolean;
   showLuckySpinModal: boolean;
+  isRegisteredUser: boolean;
 
   recordScanReward: (scanResult: any, options?: { hasCoords?: boolean; userWeightProvided?: boolean; isOfflineSync?: boolean }) => Promise<void>;
   addXP: (amount: number, reason: string) => void;
@@ -98,32 +98,35 @@ export async function fireSuperConfetti() {
   } catch {}
 }
 
+const GUEST_IMPACT: EnvironmentalImpact = {
+  co2_offset_kg: 0,
+  energy_saved_kwh: 0,
+  trees_equivalent: 0,
+  total_weight_kg: 0,
+  items_recycled: 0,
+};
+
 export function GamificationProvider({ children }: { children: ReactNode }) {
-  const [xp, setXp] = useState<number>(150);
-  const [streak, setStreak] = useState<number>(1);
+  const { user } = useAuth();
+  const isRegisteredUser = Boolean(user && user.email);
+
+  const [xp, setXp] = useState<number>(0);
+  const [streak, setStreak] = useState<number>(0);
   const [lastScanDate, setLastScanDate] = useState<string | null>(null);
   const [multiplier, setMultiplier] = useState<number>(1.0);
-  const [freezeTokens, setFreezeTokens] = useState<number>(1);
-
-  const [impact, setImpact] = useState<EnvironmentalImpact>({
-    co2_offset_kg: 4.8,
-    energy_saved_kwh: 7.2,
-    trees_equivalent: 0.24,
-    total_weight_kg: 1.5,
-    items_recycled: 2,
-  });
-
-  const [unlockedBadges, setUnlockedBadges] = useState<string[]>(["first_scan"]);
-  const [unlockedCards, setUnlockedCards] = useState<string[]>(["motherboard"]);
+  const [freezeTokens, setFreezeTokens] = useState<number>(0);
+  const [impact, setImpact] = useState<EnvironmentalImpact>(GUEST_IMPACT);
+  const [unlockedBadges, setUnlockedBadges] = useState<string[]>([]);
+  const [unlockedCards, setUnlockedCards] = useState<string[]>([]);
   const [challenges, setChallenges] = useState<Challenge[]>(INITIAL_CHALLENGES);
   const [quests, setQuests] = useState<StoryQuest[]>(STORY_QUESTS);
 
   const [recentXPPopups, setRecentXPPopups] = useState<XPPopupItem[]>([]);
   const [celebrationBadge, setCelebrationBadge] = useState<Badge | null>(null);
-  const [celebrationCard, setCelebrationCard] = useState<CollectibleCard | null>(null);
   const [celebrationLevel, setCelebrationLevel] = useState<LevelTier | null>(null);
-  const [isLuckySpinAvailable, setIsLuckySpinAvailable] = useState<boolean>(false);
-  const [showLuckySpinModal, setShowLuckySpinModal] = useState<boolean>(false);
+
+  // Storage key is scoped to the logged-in user account
+  const storageKey = user?.email ? `kabadiai_gamification_${user.email.toLowerCase()}` : null;
 
   // Compute Level
   const getLevelInfo = useCallback((currentXp: number) => {
@@ -144,12 +147,27 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
     return { level: current, nextLevel: next, progress };
   }, []);
 
-  const { level, nextLevel, progress: levelProgress } = getLevelInfo(xp);
+  const { level, nextLevel, progress: levelProgress } = getLevelInfo(isRegisteredUser ? xp : 0);
 
-  // Rehydrate state on mount
+  // Rehydrate state when user signs in or mounts
   useEffect(() => {
+    if (!storageKey) {
+      // Anonymous Guest: reset gamification progression to inactive
+      setXp(0);
+      setStreak(0);
+      setLastScanDate(null);
+      setMultiplier(1.0);
+      setFreezeTokens(0);
+      setImpact(GUEST_IMPACT);
+      setUnlockedBadges([]);
+      setUnlockedCards([]);
+      setChallenges(INITIAL_CHALLENGES);
+      setQuests(STORY_QUESTS);
+      return;
+    }
+
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(storageKey);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (typeof parsed.xp === "number") setXp(parsed.xp);
@@ -162,14 +180,26 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
         if (Array.isArray(parsed.unlockedCards)) setUnlockedCards(parsed.unlockedCards);
         if (Array.isArray(parsed.challenges)) setChallenges(parsed.challenges);
         if (Array.isArray(parsed.quests)) setQuests(parsed.quests);
+      } else {
+        // Initial setup for newly registered user
+        setXp(50);
+        setStreak(1);
+        setFreezeTokens(1);
+        setMultiplier(1.0);
+        setImpact(GUEST_IMPACT);
+        setUnlockedBadges(["first_scan"]);
+        setUnlockedCards(["motherboard"]);
+        setChallenges(INITIAL_CHALLENGES);
+        setQuests(STORY_QUESTS);
       }
     } catch (e) {
-      console.error("Error rehydrating gamification state:", e);
+      console.error("Error rehydrating user gamification state:", e);
     }
-  }, []);
+  }, [storageKey]);
 
-  // Persist state changes
+  // Persist state changes only for authenticated users
   useEffect(() => {
+    if (!storageKey) return;
     try {
       const state = {
         xp,
@@ -183,9 +213,9 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
         challenges,
         quests,
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(storageKey, JSON.stringify(state));
     } catch {}
-  }, [xp, streak, lastScanDate, multiplier, freezeTokens, impact, unlockedBadges, unlockedCards, challenges, quests]);
+  }, [storageKey, xp, streak, lastScanDate, multiplier, freezeTokens, impact, unlockedBadges, unlockedCards, challenges, quests]);
 
   // Push Floating XP Popup helper
   const triggerXPPopup = useCallback((amount: number, label: string) => {
@@ -196,8 +226,9 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
     }, 2800);
   }, []);
 
-  // Direct XP add with level-up detection
+  // Direct XP add with level-up detection (strictly for registered users)
   const addXP = useCallback((amount: number, reason: string) => {
+    if (!isRegisteredUser) return;
     setXp((prev) => {
       const newXp = prev + amount;
       const oldLvl = getLevelInfo(prev).level;
@@ -209,26 +240,32 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
       return newXp;
     });
     triggerXPPopup(amount, reason);
-  }, [getLevelInfo, triggerXPPopup]);
+  }, [isRegisteredUser, getLevelInfo, triggerXPPopup]);
 
-  // Main action: record scan reward
+  // Main action: record scan reward (gated to registered users)
   const recordScanReward = useCallback(async (
     scanResult: any,
     options?: { hasCoords?: boolean; userWeightProvided?: boolean; isOfflineSync?: boolean }
   ) => {
     if (!scanResult || scanResult.type !== "result") return;
 
+    // Level-up, streaks, and persistent XP are only enabled for people who signed up
+    if (!isRegisteredUser || !user?.email) {
+      return;
+    }
+
     const items = scanResult.line_items || [];
     const hazards = (scanResult.hazard_messages || []).map((h: any) => h.hazard_code);
     const todayStr = new Date().toISOString().split("T")[0];
 
-    // Try backend call for server-validated calculation, with rock-solid offline fallback
+    // Call server to atomically record scan reward and store data with the user account in DynamoDB
     let serverReward: any = null;
     try {
       const res = await fetch(`${API}/gamification/scan-reward`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          user_id: user.email,
           items,
           hazards,
           has_coords: Boolean(options?.hasCoords),
@@ -243,14 +280,15 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         serverReward = await res.json();
       }
-    } catch {}
+    } catch (err) {
+      console.warn("Scan reward network warning:", err);
+    }
 
     // 1. Calculate XP gained
     let gainedXp = 50;
-    if (serverReward?.total_xp) {
+    if (serverReward?.total_xp !== undefined && serverReward.total_xp !== null) {
       gainedXp = serverReward.total_xp;
     } else {
-      // Offline fallback math
       if (hazards.length > 0) gainedXp += 30 * hazards.length;
       if (options?.hasCoords) gainedXp += 15;
       if (options?.userWeightProvided) gainedXp += 20;
@@ -258,11 +296,13 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
       gainedXp = Math.round(gainedXp * multiplier);
     }
 
-    addXP(gainedXp, "E-Waste Scan Reward");
+    if (gainedXp > 0) {
+      addXP(gainedXp, "E-Waste Scan Reward");
+    }
 
     // 2. Update Streak
-    let nextStreak = streak;
-    let nextMultiplier = multiplier;
+    let nextStreak = streak || 1;
+    let nextMultiplier = multiplier || 1.0;
     let nextFreeze = freezeTokens;
     if (serverReward?.streak) {
       nextStreak = serverReward.streak.streak;
@@ -271,7 +311,7 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
     } else if (lastScanDate !== todayStr) {
       const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
       if (lastScanDate === yesterday) {
-        nextStreak = streak + 1;
+        nextStreak = (streak || 0) + 1;
       } else {
         nextStreak = 1;
       }
@@ -299,7 +339,7 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
       items_recycled: prev.items_recycled + itemCount,
     }));
 
-    // 4. Discover new Collectible Cards
+    // 4. Save newly discovered Cards quietly in the background (NO modal popup on scan)
     const newCardsToUnlock: string[] = [];
     items.forEach((it: any) => {
       const comp = it.component;
@@ -307,14 +347,8 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
         newCardsToUnlock.push(comp);
       }
     });
-
     if (newCardsToUnlock.length > 0) {
       setUnlockedCards((prev) => [...prev, ...newCardsToUnlock]);
-      const cardObj = COLLECTIBLE_CARDS.find((c) => c.id === newCardsToUnlock[0]);
-      if (cardObj) {
-        setCelebrationCard(cardObj);
-        fireConfettiBurst();
-      }
     }
 
     // 5. Update Challenges Progress
@@ -359,12 +393,9 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
         fireSuperConfetti();
       }
     }
-
-    // 7. Check Lucky Spin trigger (25% chance or if multiple items)
-    if (serverReward?.lucky_spin_eligible || Math.random() < 0.25 || items.length >= 2) {
-      setIsLuckySpinAvailable(true);
-    }
   }, [
+    isRegisteredUser,
+    user?.email,
     lastScanDate,
     streak,
     freezeTokens,
@@ -377,6 +408,7 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
 
   // Claim completed challenge
   const claimChallenge = useCallback((challengeId: string) => {
+    if (!isRegisteredUser) return;
     setChallenges((prev) =>
       prev.map((ch) => {
         if (ch.id === challengeId && ch.completed && !ch.claimed) {
@@ -387,10 +419,11 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
         return ch;
       })
     );
-  }, [addXP]);
+  }, [isRegisteredUser, addXP]);
 
   // Advance Quest Step
   const completeQuestStep = useCallback((questId: string, stepId: string) => {
+    if (!isRegisteredUser) return;
     setQuests((prev) =>
       prev.map((q) => {
         if (q.id === questId) {
@@ -407,32 +440,29 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
         return q;
       })
     );
-  }, [addXP]);
+  }, [isRegisteredUser, addXP]);
 
-  // Lucky Spin handlers
-  const openLuckySpin = useCallback(() => setShowLuckySpinModal(true), []);
-  const closeLuckySpin = useCallback(() => setShowLuckySpinModal(false), []);
-  const claimLuckySpinReward = useCallback((xpWon: number) => {
-    addXP(xpWon, "Lucky Spin Bonus!");
-    setIsLuckySpinAvailable(false);
-    setShowLuckySpinModal(false);
-  }, [addXP]);
-
+  // Dismiss celebration modals
   const dismissBadgeModal = useCallback(() => setCelebrationBadge(null), []);
-  const dismissCardModal = useCallback(() => setCelebrationCard(null), []);
+  const dismissCardModal = useCallback(() => {}, []);
   const dismissLevelModal = useCallback(() => setCelebrationLevel(null), []);
 
+  // Removed feature stubs (safe no-ops for backwards compatibility)
+  const openLuckySpin = useCallback(() => {}, []);
+  const closeLuckySpin = useCallback(() => {}, []);
+  const claimLuckySpinReward = useCallback(() => {}, []);
+
   const resetProgress = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    setXp(150);
-    setStreak(1);
+    if (storageKey) localStorage.removeItem(storageKey);
+    setXp(0);
+    setStreak(0);
     setMultiplier(1.0);
-    setImpact({ co2_offset_kg: 0, energy_saved_kwh: 0, trees_equivalent: 0, total_weight_kg: 0, items_recycled: 0 });
-    setUnlockedBadges(["first_scan"]);
-    setUnlockedCards(["motherboard"]);
+    setImpact(GUEST_IMPACT);
+    setUnlockedBadges([]);
+    setUnlockedCards([]);
     setChallenges(INITIAL_CHALLENGES);
     setQuests(STORY_QUESTS);
-  }, []);
+  }, [storageKey]);
 
   return (
     <GamificationContext.Provider
@@ -452,10 +482,11 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
         quests,
         recentXPPopups,
         celebrationBadge,
-        celebrationCard,
+        celebrationCard: null,
         celebrationLevel,
-        isLuckySpinAvailable,
-        showLuckySpinModal,
+        isLuckySpinAvailable: false,
+        showLuckySpinModal: false,
+        isRegisteredUser,
         recordScanReward,
         addXP,
         claimChallenge,

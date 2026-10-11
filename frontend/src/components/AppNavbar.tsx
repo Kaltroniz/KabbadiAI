@@ -250,26 +250,28 @@ export default function AppNavbar({
             </button>
           )}
 
-          {/* Compact Player Pill */}
-          <Link
-            href="/profile"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl transition-all duration-200 no-underline text-inherit hover:scale-102 shrink-0 whitespace-nowrap"
-            style={{
-              background: "linear-gradient(135deg, rgba(0,229,160,0.12), rgba(16,185,129,0.06))",
-              border: "1px solid rgba(0,229,160,0.3)",
-              boxShadow: "0 0 14px rgba(0,229,160,0.12)",
-            }}
-            title={`Level ${level.level}: ${level.name} · ${streak}d streak · Click to view profile`}
-          >
-            <span className="text-sm select-none">{level.badge}</span>
-            <span className="text-xs font-black text-emerald-300 font-outfit">
-              Lvl {level.level}
-            </span>
-            <span className="text-xs font-bold text-amber-300 flex items-center gap-0.5 font-outfit">
-              <span>🔥</span>
-              <span>{streak}d</span>
-            </span>
-          </Link>
+          {/* Compact Player Pill - strictly for authenticated users */}
+          {user && (
+            <Link
+              href="/profile"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl transition-all duration-200 no-underline text-inherit hover:scale-102 shrink-0 whitespace-nowrap"
+              style={{
+                background: "linear-gradient(135deg, rgba(0,229,160,0.12), rgba(16,185,129,0.06))",
+                border: "1px solid rgba(0,229,160,0.3)",
+                boxShadow: "0 0 14px rgba(0,229,160,0.12)",
+              }}
+              title={`Level ${level.level}: ${level.name} · ${streak}d streak · Click to view profile`}
+            >
+              <span className="text-sm select-none">{level.badge}</span>
+              <span className="text-xs font-black text-emerald-300 font-outfit">
+                Lvl {level.level}
+              </span>
+              <span className="text-xs font-bold text-amber-300 flex items-center gap-0.5 font-outfit">
+                <span>🔥</span>
+                <span>{streak}d</span>
+              </span>
+            </Link>
+          )}
 
           {/* Voice Guide Audio Button */}
           <button
@@ -379,20 +381,22 @@ export default function AppNavbar({
               </button>
             )}
 
-            {/* Compact Player Pill */}
-            <Link
-              href="/profile"
-              className="phone-compact-pill flex items-center gap-1 px-2 py-1 rounded-xl no-underline text-inherit shrink-0 transition-all"
-              style={{
-                background: "linear-gradient(135deg, rgba(0,229,160,0.14), rgba(16,185,129,0.06))",
-                border: "1px solid rgba(0, 229, 160, 0.3)",
-              }}
-              title={`Level ${level.level}: ${level.name} · ${streak}d streak · Click to view profile`}
-            >
-              <span className="text-xs shrink-0 select-none">{level.badge}</span>
-              <span className="text-[10.5px] font-black text-emerald-300 font-outfit shrink-0">L{level.level}</span>
-              <span className="max-[400px]:hidden text-[10.5px] font-bold text-amber-300 font-outfit shrink-0">🔥{streak}d</span>
-            </Link>
+            {/* Compact Player Pill - strictly for authenticated users */}
+            {user && (
+              <Link
+                href="/profile"
+                className="phone-compact-pill flex items-center gap-1 px-2 py-1 rounded-xl no-underline text-inherit shrink-0 transition-all"
+                style={{
+                  background: "linear-gradient(135deg, rgba(0,229,160,0.14), rgba(16,185,129,0.06))",
+                  border: "1px solid rgba(0, 229, 160, 0.3)",
+                }}
+                title={`Level ${level.level}: ${level.name} · ${streak}d streak · Click to view profile`}
+              >
+                <span className="text-xs shrink-0 select-none">{level.badge}</span>
+                <span className="text-[10.5px] font-black text-emerald-300 font-outfit shrink-0">L{level.level}</span>
+                <span className="max-[400px]:hidden text-[10.5px] font-bold text-amber-300 font-outfit shrink-0">🔥{streak}d</span>
+              </Link>
+            )}
 
             {/* Voice Help button */}
             <button

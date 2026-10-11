@@ -13,8 +13,6 @@ export default function GamificationHubBar() {
     multiplier,
     freezeTokens,
     unlockedCards,
-    isLuckySpinAvailable,
-    openLuckySpin,
   } = useGamification();
 
   return (
@@ -86,23 +84,6 @@ export default function GamificationHubBar() {
           )}
           {freezeTokens > 0 && <span title="Streak Freeze Token Active">🧊</span>}
         </div>
-
-        {isLuckySpinAvailable && (
-          <button
-            onClick={openLuckySpin}
-            className="!min-h-0 !h-8 px-3 rounded-xl font-black text-xs flex items-center gap-1 animate-bounce"
-            style={{
-              background: "linear-gradient(135deg, #ec4899, #8b5cf6)",
-              border: "1px solid rgba(236,72,153,0.5)",
-              boxShadow: "0 0 18px rgba(236,72,153,0.4)",
-              color: "#fff",
-            }}
-            title="Lucky Spin ready! Win up to 500 bonus XP!"
-          >
-            <span>🎰</span>
-            <span>Spin!</span>
-          </button>
-        )}
       </div>
 
       {/* Right: Quick Action Nav Pills */}
