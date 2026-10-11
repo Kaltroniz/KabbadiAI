@@ -29,12 +29,23 @@ Parameters:
     Type: String
     Default: ""
     Description: Google OAuth 2.0 Client ID (web application). Used to verify Google ID tokens.
+  AllowedOrigins:
+    Type: String
+    Default: "*"
+    Description: Comma-separated list of allowed CORS origins (e.g. '*' or 'http://localhost:3000,https://main.*.amplifyapp.com')
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Optional email address for operational alerts.
+
 
 Globals:
   Function:
     Runtime: python3.13
-    Timeout: 60
-    MemorySize: 512
+    Architectures:
+      - arm64
+    Timeout: 30
+    MemorySize: 256
 
 Resources:
   # ── API ──────────────────────────────────────────────────────────────────
@@ -42,12 +53,83 @@ Resources:
     Type: AWS::Serverless::HttpApi
     Properties:
       CorsConfiguration:
-        AllowOrigins: ['*']
+        AllowOrigins: !Split [",", !Ref AllowedOrigins]
         AllowMethods: [POST, GET, OPTIONS]
         AllowHeaders: [content-type, authorization]
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 10
-        ThrottlingRateLimit: 5
+        ThrottlingBurstLimit: 200
+        ThrottlingRateLimit: 150
+      RouteSettings:
+        "POST /agent":
+          ThrottlingBurstLimit: 40
+          ThrottlingRateLimit: 25
+        "POST /scan/upload-url":
+          ThrottlingBurstLimit: 40
+          ThrottlingRateLimit: 20
+        "POST /scan/jobs":
+          ThrottlingBurstLimit: 40
+          ThrottlingRateLimit: 20
+        "GET /scan/jobs/{id}":
+          ThrottlingBurstLimit: 120
+          ThrottlingRateLimit: 80
+        "POST /auth/login":
+          ThrottlingBurstLimit: 30
+          ThrottlingRateLimit: 15
+        "POST /auth/register":
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+        "POST /gamification/lucky-spin":
+          ThrottlingBurstLimit: 30
+          ThrottlingRateLimit: 15
+
+  # ── S3 Object Storage (Direct client upload with 24h expiration) ───────────
+  UploadsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireAfter1Day
+            Status: Enabled
+            ExpirationInDays: 1
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: !Split [",", !Ref AllowedOrigins]
+            AllowedMethods: [PUT, GET, HEAD]
+            AllowedHeaders: ["*"]
+            MaxAge: 3600
+
+  # ── SQS Asynchronous Scan Queue with DLQ ──────────────────────────────────
+  ScanJobsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600 # 14 days retention
+
+  ScanJobsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ScanJobsDLQ.Arn
+        maxReceiveCount: 3
+
+  # ── ScanJobs DynamoDB Table (TTL 24 hours) ─────────────────────────────────
+  ScanJobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
 
   # ── DynamoDB tables ───────────────────────────────────────────────────────
   PricesTable:
@@ -121,6 +203,7 @@ Resources:
           PROVIDER_ORDER: "gemini,bedrock"
           GEMINI_API_KEY: !Ref GeminiApiKey
           GEMINI_MODEL: !Ref GeminiModel
+          AGGREGATES_TABLE: !Ref AggregatesTable
       Policies:
         - Statement:
             - Effect: Allow
@@ -131,10 +214,12 @@ Resources:
                 - dynamodb:GetItem
                 - dynamodb:Scan
                 - dynamodb:PutItem
+                - dynamodb:UpdateItem
               Resource:
                 - !GetAtt PricesTable.Arn
                 - !GetAtt RecyclersTable.Arn
                 - !GetAtt LotsTable.Arn
+                - !GetAtt AggregatesTable.Arn
       Events:
         Agent:
           Type: HttpApi
@@ -142,6 +227,105 @@ Resources:
             ApiId: !Ref Api
             Path: /agent
             Method: POST
+
+  # ── Async Scan Pipeline Functions ──────────────────────────────────────────
+  ScanApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/scan/
+      Handler: app.api_handler
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          UPLOADS_BUCKET: !Ref UploadsBucket
+          SCAN_JOBS_TABLE: !Ref ScanJobsTable
+          SCAN_JOBS_QUEUE_URL: !Ref ScanJobsQueue
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+              Resource: !Sub "${UploadsBucket.Arn}/*"
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource: !GetAtt ScanJobsQueue.Arn
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt ScanJobsTable.Arn
+      Events:
+        UploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /scan/upload-url
+            Method: POST
+        SubmitJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /scan/jobs
+            Method: POST
+        GetJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /scan/jobs/{id}
+            Method: GET
+
+  ScanWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/scan/
+      Handler: app.handle_sqs_worker
+      Timeout: 60
+      MemorySize: 512
+      ReservedConcurrentExecutions: 80
+      Environment:
+        Variables:
+          UPLOADS_BUCKET: !Ref UploadsBucket
+          SCAN_JOBS_TABLE: !Ref ScanJobsTable
+          PRICES_TABLE: !Ref PricesTable
+          RECYCLERS_TABLE: !Ref RecyclersTable
+          LOTS_TABLE: !Ref LotsTable
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          MOCK_ANALYSIS: !Ref MockAnalysis
+          PROVIDER_ORDER: "gemini,bedrock"
+          GEMINI_API_KEY: !Ref GeminiApiKey
+          GEMINI_MODEL: !Ref GeminiModel
+          AGGREGATES_TABLE: !Ref AggregatesTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: !Sub "${UploadsBucket.Arn}/*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Scan
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt ScanJobsTable.Arn
+                - !GetAtt PricesTable.Arn
+                - !GetAtt RecyclersTable.Arn
+                - !GetAtt LotsTable.Arn
+                - !GetAtt AggregatesTable.Arn
+      Events:
+        SqsScanJob:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ScanJobsQueue.Arn
+            BatchSize: 5
 
   LotsFunction:
     Type: AWS::Serverless::Function
@@ -151,13 +335,18 @@ Resources:
       Environment:
         Variables:
           LOTS_TABLE: !Ref LotsTable
+          AGGREGATES_TABLE: !Ref AggregatesTable
       Policies:
         - Statement:
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
                 - dynamodb:Scan
-              Resource: !GetAtt LotsTable.Arn
+                - dynamodb:Query
+              Resource:
+                - !GetAtt LotsTable.Arn
+                - !GetAtt AggregatesTable.Arn
+                - !Sub "${AggregatesTable.Arn}/index/*"
       Events:
         Stats:
           Type: HttpApi
@@ -181,13 +370,20 @@ Resources:
       Environment:
         Variables:
           LOTS_TABLE: !Ref LotsTable
+          AGGREGATES_TABLE: !Ref AggregatesTable
           GEMINI_API_KEY: !Ref GeminiApiKey
           GEMINI_MODEL: !Ref GeminiModel
       Policies:
         - Statement:
             - Effect: Allow
-              Action: [dynamodb:Scan]
-              Resource: !GetAtt LotsTable.Arn
+              Action:
+                - dynamodb:Scan
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt LotsTable.Arn
+                - !GetAtt AggregatesTable.Arn
+                - !Sub "${AggregatesTable.Arn}/index/*"
       Events:
         Analyst:
           Type: HttpApi
@@ -205,12 +401,18 @@ Resources:
       Environment:
         Variables:
           LOTS_TABLE: !Ref LotsTable
+          AGGREGATES_TABLE: !Ref AggregatesTable
       Policies:
         - Statement:
             - Effect: Allow
               Action:
+                - dynamodb:GetItem
                 - dynamodb:Scan
-              Resource: !GetAtt LotsTable.Arn
+                - dynamodb:Query
+              Resource:
+                - !GetAtt LotsTable.Arn
+                - !GetAtt AggregatesTable.Arn
+                - !Sub "${AggregatesTable.Arn}/index/*"
       Events:
         Hotspots:
           Type: HttpApi
@@ -249,7 +451,7 @@ Resources:
             Path: /pickup
             Method: GET
 
-  # ── Feature: Authentication (POST /auth/register, /auth/login, /auth/google, GET /auth/me) ──
+  # ── Feature: Authentication & Leaderboard UsersTable ─────────────────────
   UsersTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -257,9 +459,50 @@ Resources:
       AttributeDefinitions:
         - AttributeName: email
           AttributeType: S
+        - AttributeName: leaderboard_key
+          AttributeType: S
+        - AttributeName: xp
+          AttributeType: N
       KeySchema:
         - AttributeName: email
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: LeaderboardIndex
+          KeySchema:
+            - AttributeName: leaderboard_key
+              KeyType: HASH
+            - AttributeName: xp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - id
+              - name
+              - avatar
+              - level
+              - kg_diverted
+              - city
+
+  # ── Pre-Aggregated Statistics & Hotspots Table ───────────────────────────
+  AggregatesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: aggregate_type
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: TypeIndex
+          KeySchema:
+            - AttributeName: aggregate_type
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
 
   AuthFunction:
     Type: AWS::Serverless::Function
@@ -321,8 +564,12 @@ Resources:
               Action:
                 - dynamodb:GetItem
                 - dynamodb:PutItem
+                - dynamodb:UpdateItem
                 - dynamodb:Scan
-              Resource: !GetAtt UsersTable.Arn
+                - dynamodb:Query
+              Resource:
+                - !GetAtt UsersTable.Arn
+                - !Sub "${UsersTable.Arn}/index/*"
       Events:
         GamificationReward:
           Type: HttpApi
@@ -355,9 +602,157 @@ Resources:
             Path: /gamification/{proxy+}
             Method: ANY
 
+  # ── CloudWatch Alarms & Operational Observability ────────────────────────
+  ScanJobsDLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Alert when dead-letter queue contains failed scan jobs
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ScanJobsDLQ.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  ScanJobsBacklogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Alert when scan processing queue depth exceeds capacity backlog
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ScanJobsQueue.QueueName
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 200
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  ApiGateway5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Alert when API Gateway returns elevated 5XX server errors
+      Namespace: AWS/ApiGateway
+      MetricName: 5XXError
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref Api
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 10
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  ScanWorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Alert when asynchronous scan worker Lambda fails executions
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ScanWorkerFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  OperationalDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: KabadiAI-Operational-Dashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway Traffic & Errors",
+                "metrics": [
+                  ["AWS/ApiGateway", "Count", "ApiId", "${Api}", { "stat": "Sum", "label": "Total Requests" }],
+                  ["AWS/ApiGateway", "4XXError", "ApiId", "${Api}", { "stat": "Sum", "label": "4XX Errors" }],
+                  ["AWS/ApiGateway", "5XXError", "ApiId", "${Api}", { "stat": "Sum", "label": "5XX Errors" }]
+                ],
+                "period": 60,
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "SQS Async Scan Pipeline Backlog & DLQ",
+                "metrics": [
+                  ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${ScanJobsQueue.QueueName}", { "label": "Visible Messages (Queue Depth)" }],
+                  ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${ScanJobsDLQ.QueueName}", { "label": "DLQ Messages (Failures)" }]
+                ],
+                "period": 60,
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Scan Worker Lambda Duration & Throttles",
+                "metrics": [
+                  ["AWS/Lambda", "Duration", "FunctionName", "${ScanWorkerFunction}", { "stat": "p95", "label": "p95 Duration (ms)" }],
+                  ["AWS/Lambda", "Throttles", "FunctionName", "${ScanWorkerFunction}", { "stat": "Sum", "label": "Throttles" }],
+                  ["AWS/Lambda", "Errors", "FunctionName", "${ScanWorkerFunction}", { "stat": "Sum", "label": "Errors" }]
+                ],
+                "period": 60,
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "DynamoDB Consumed Capacity Units",
+                "metrics": [
+                  ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${PricesTable}", { "stat": "Sum" }],
+                  ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "${ScanJobsTable}", { "stat": "Sum" }],
+                  ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "${AggregatesTable}", { "stat": "Sum" }]
+                ],
+                "period": 60,
+                "region": "${AWS::Region}"
+              }
+            }
+          ]
+        }
+
 Outputs:
   ApiUrl:
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com
+  UploadsBucketName:
+    Value: !Ref UploadsBucket
+  ScanJobsQueueUrl:
+    Value: !Ref ScanJobsQueue
+  ScanJobsTableName:
+    Value: !Ref ScanJobsTable
   PricesTableName:
     Value: !Ref PricesTable
   RecyclersTableName:
@@ -366,3 +761,5 @@ Outputs:
     Value: !Ref PickupsTable
   UsersTableName:
     Value: !Ref UsersTable
+  AggregatesTableName:
+    Value: !Ref AggregatesTable

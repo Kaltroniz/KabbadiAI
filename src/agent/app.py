@@ -14,6 +14,7 @@ AGENT_MODE = os.environ.get("AGENT_MODE", "0") == "1"
 PRICES_TABLE = os.environ.get("PRICES_TABLE", "")
 RECYCLERS_TABLE = os.environ.get("RECYCLERS_TABLE", "")
 LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
+AGGREGATES_TABLE = os.environ.get("AGGREGATES_TABLE", "")
 PROVIDER_ORDER = [x.strip() for x in os.environ.get("PROVIDER_ORDER", "gemini,bedrock").split(",") if x.strip()]
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")  # confirm the exact id in Google AI Studio
@@ -55,17 +56,96 @@ MOCK_SCAN = {"items": [{"component": "motherboard", "condition": "corroded", "co
              "hazards": [], "confidence": 85, "notes": "MOCK DATA, Bedrock not called."}
 
 _ddb = None
+_ssm = None
+
+def _get_ssm_client():
+    global _ssm
+    if not _ssm:
+        _ssm = boto3.client("ssm")
+    return _ssm
+
+_CACHED_SECRETS = {}
+def _get_secret(val):
+    if not val:
+        return ""
+    if val in _CACHED_SECRETS:
+        return _CACHED_SECRETS[val]
+    if val.startswith("/") or val.startswith("arn:aws:ssm:"):
+        try:
+            res = _get_ssm_client().get_parameter(Name=val, WithDecryption=True)
+            secret = res["Parameter"]["Value"]
+            _CACHED_SECRETS[val] = secret
+            return secret
+        except Exception as e:
+            print(f"SSM get_parameter failed for {val}:", repr(e))
+            return val
+    _CACHED_SECRETS[val] = val
+    return val
+
+def _gemini_key():
+    return _get_secret(GEMINI_KEY or os.environ.get("GEMINI_API_KEY", ""))
+
 def _table(name):
     global _ddb
     _ddb = _ddb or boto3.resource("dynamodb")
     return _ddb.Table(name)
 
+# Module-level TTL caches for near-zero latency and high throughput
+_CACHE = {
+    "prices": {},          # component -> item dict
+    "prices_expiry": 0.0,
+    "recyclers": [],       # list of recyclers
+    "recyclers_expiry": 0.0,
+}
+PRICES_CACHE_TTL = 300     # 5 minutes
+RECYCLERS_CACHE_TTL = 600  # 10 minutes
+
+def _load_all_prices():
+    now = time.time()
+    if _CACHE["prices"] and now < _CACHE["prices_expiry"]:
+        return _CACHE["prices"]
+    if not PRICES_TABLE:
+        return _CACHE["prices"]
+    try:
+        items = _table(PRICES_TABLE).scan().get("Items", [])
+        if items:
+            _CACHE["prices"] = {it.get("component"): it for it in items if it.get("component")}
+            _CACHE["prices_expiry"] = now + PRICES_CACHE_TTL
+    except Exception as e:
+        print("Prices cache preload warning:", repr(e))
+    return _CACHE["prices"]
+
 def _price_row(comp):
-    t = _table(PRICES_TABLE)
-    return t.get_item(Key={"component": comp}).get("Item") or t.get_item(Key={"component": "other"}).get("Item") or {"basis": "none"}
+    prices = _load_all_prices()
+    row = prices.get(comp) or prices.get("other")
+    if row:
+        return row
+    if not PRICES_TABLE:
+        return {"basis": "none"}
+    try:
+        t = _table(PRICES_TABLE)
+        return t.get_item(Key={"component": comp}).get("Item") or t.get_item(Key={"component": "other"}).get("Item") or {"basis": "none"}
+    except Exception:
+        return {"basis": "none"}
 
 def _all_recyclers():
-    return _table(RECYCLERS_TABLE).scan().get("Items", [])
+    now = time.time()
+    if _CACHE["recyclers"] and now < _CACHE["recyclers_expiry"]:
+        return _CACHE["recyclers"]
+    if not RECYCLERS_TABLE:
+        return _CACHE["recyclers"]
+    try:
+        # Use projection expression to only pull fields required by distance calculation & map links
+        items = _table(RECYCLERS_TABLE).scan(
+            ProjectionExpression="id, #n, address, city, #s, kind, lat, lon, toll_free, capacity_mta, notes",
+            ExpressionAttributeNames={"#n": "name", "#s": "state"}
+        ).get("Items", [])
+        if items:
+            _CACHE["recyclers"] = items
+            _CACHE["recyclers_expiry"] = now + RECYCLERS_CACHE_TTL
+    except Exception as e:
+        print("Recyclers cache preload warning:", repr(e))
+    return _CACHE["recyclers"]
 
 def _km(a, b, c, d):
     p = math.pi / 180
@@ -96,8 +176,9 @@ def _text_gemini(img, mime, timeout=18):
     for model_name in (GEMINI_MODEL, "gemini-flash-latest"):
         for attempt in range(2):
             try:
+                g_key = _gemini_key()
                 req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent",
-                                             json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY})
+                                             json.dumps(body).encode(), {"Content-Type": "application/json", "x-goog-api-key": g_key})
                 with urllib.request.urlopen(req, timeout=max(3, timeout)) as r:
                     return json.load(r)["candidates"][0]["content"]["parts"][0]["text"]
             except urllib.error.HTTPError as e:
@@ -111,8 +192,24 @@ def _text_gemini(img, mime, timeout=18):
                 break
     raise last_err or RuntimeError("Gemini failed")
 
+try:
+    from src.agent.resilience import GEMINI_BREAKER, compute_image_hash, get_dedup_cached_result, put_dedup_cached_result
+except (ImportError, ValueError):
+    try:
+        from .resilience import GEMINI_BREAKER, compute_image_hash, get_dedup_cached_result, put_dedup_cached_result
+    except (ImportError, ValueError):
+        from resilience import GEMINI_BREAKER, compute_image_hash, get_dedup_cached_result, put_dedup_cached_result
+
 def _scan_with_providers(img, fmt):
     """Tries each provider in PROVIDER_ORDER; the first valid answer wins. Records which one answered."""
+    # Deduplication cache check
+    img_hash = compute_image_hash(img, CTX.get("lang", "en"), CTX.get("user_weight_g"))
+    cached = get_dedup_cached_result(img_hash)
+    if cached:
+        scan = json.loads(json.dumps(cached))
+        scan["provider"] = "cache_dedup"
+        return scan
+
     errors = []
     for prov in PROVIDER_ORDER:
         left = CTX.get("deadline", time.time() + 24) - time.time()
@@ -121,8 +218,13 @@ def _scan_with_providers(img, fmt):
             break
         try:
             if prov == "gemini":
-                if not GEMINI_KEY: raise RuntimeError("no gemini key set")
-                text = _text_gemini(img, "image/" + fmt, min(18, left - 1))
+                g_key = _gemini_key()
+                if not g_key: raise RuntimeError("no gemini key set")
+                def _do_gemini():
+                    return _text_gemini(img, "image/" + fmt, min(15, left - 1))
+                def _fallback_bedrock():
+                    return _text_bedrock(img, fmt, min(12, left - 1))
+                text = GEMINI_BREAKER.execute(_do_gemini, fallback_fn=_fallback_bedrock)
             elif prov == "bedrock":
                 text = _text_bedrock(img, fmt, min(15, left - 1))
             else:
@@ -130,6 +232,7 @@ def _scan_with_providers(img, fmt):
             m = re.search(r"\{.*\}", text, re.S)
             scan = _clean(json.loads(m.group(0)))
             scan["provider"] = prov
+            put_dedup_cached_result(img_hash, scan)
             return scan
         except Exception as e:  # access denied, timeout, bad JSON: try the next provider
             errors.append(f"{prov}: {type(e).__name__}")
@@ -148,7 +251,28 @@ def _hazards(scan):  # model flags plus rules, so a swollen battery is never mis
         if c in ("split_ac", "window_ac", "refrigerator"): h.add("refrigerant_gas")
     return sorted(h & HAZARDS)
 
-CTX = {}
+import contextvars
+
+_ctx_store = contextvars.ContextVar("agent_ctx", default=None)
+
+class _ContextProxy(dict):
+    """Request-scoped dictionary proxy for thread-safety and concurrency protection."""
+    def _d(self):
+        d = _ctx_store.get()
+        if d is None:
+            d = {}
+            _ctx_store.set(d)
+        return d
+    def __getitem__(self, k): return self._d()[k]
+    def __setitem__(self, k, v): self._d()[k] = v
+    def __delitem__(self, k): del self._d()[k]
+    def get(self, k, default=None): return self._d().get(k, default)
+    def __contains__(self, k): return k in self._d()
+    def setdefault(self, k, default=None): return self._d().setdefault(k, default)
+    def update(self, *args, **kwargs): return self._d().update(*args, **kwargs)
+    def clear(self): self._d().clear()
+
+CTX = _ContextProxy()
 
 def _analyze():
     scan = json.loads(json.dumps(MOCK_SCAN)) if MOCK else _scan_with_providers(CTX["image"], CTX["fmt"])
@@ -304,10 +428,62 @@ def _save_lot(res):
         lot["cell_lat"], lot["cell_lon"] = round(lat, 2), round(lon, 2)
     try:
         _table(LOTS_TABLE).put_item(Item=json.loads(json.dumps(lot), parse_float=Decimal))
+        _update_aggregates(lot)
         return lot["id"]
     except Exception as e:
         print("lot save failed:", repr(e))
         return None
+
+def _update_aggregates(lot):
+    """Atomically increment pre-aggregated summary and cell counters in AggregatesTable."""
+    tbl_name = AGGREGATES_TABLE or os.environ.get("AGGREGATES_TABLE", "")
+    if not tbl_name or lot.get("mock"):
+        return
+    try:
+        t = _table(tbl_name)
+        if not t:
+            return
+        total_items = sum(int(i.get("count", 1)) for i in lot.get("items", []))
+        total_weight_g = sum(float(i.get("est_weight_g", 0)) for i in lot.get("items", []))
+        hazard_count = len(lot.get("hazards", []))
+        val_min = int(lot.get("total_min_inr", 0))
+        val_max = int(lot.get("total_max_inr", 0))
+
+        # 1. Atomic increment on summary#all
+        t.update_item(
+            Key={"id": "summary#all"},
+            UpdateExpression="SET aggregate_type = :atype ADD total_lots :one, total_items :items, total_weight_g :wg, hazard_lots :hz, value_min_inr :vmin, value_max_inr :vmax",
+            ExpressionAttributeValues={
+                ":atype": "summary",
+                ":one": 1,
+                ":items": total_items,
+                ":wg": Decimal(str(round(total_weight_g, 2))),
+                ":hz": 1 if hazard_count > 0 else 0,
+                ":vmin": val_min,
+                ":vmax": val_max,
+            }
+        )
+
+        # 2. Atomic increment on geographic cell
+        cell_lat = lot.get("cell_lat")
+        cell_lon = lot.get("cell_lon")
+        if cell_lat is not None and cell_lon is not None:
+            cell_id = f"cell#{cell_lat}#{cell_lon}"
+            t.update_item(
+                Key={"id": cell_id},
+                UpdateExpression="SET aggregate_type = :atype, lat = :lat, lon = :lon ADD lot_count :one, item_count :items, hazard_count :hz",
+                ExpressionAttributeValues={
+                    ":atype": "cell",
+                    ":lat": Decimal(str(cell_lat)),
+                    ":lon": Decimal(str(cell_lon)),
+                    ":one": 1,
+                    ":items": total_items,
+                    ":hz": hazard_count,
+                }
+            )
+    except Exception as exc:
+        print("Aggregates update error:", repr(exc))
+
 
 def _complete():  # fills any step the agent skipped; never re-scans the photo
     if "scan" not in CTX: _analyze()
@@ -363,7 +539,6 @@ def _json(status, body):
     return {"statusCode": status, "headers": {"content-type": "application/json"}, "body": json.dumps(body)}
 
 def handler(event, context):
-    global CTX
     try:
         raw = event.get("body") or "{}"
         if event.get("isBase64Encoded"): raw = base64.b64decode(raw).decode()
@@ -381,8 +556,11 @@ def handler(event, context):
         user_wt = int(b["user_weight_g"]) if b.get("user_weight_g") is not None else None
         if user_wt is not None and not (1 <= user_wt <= 2_000_000):
             return _json(400, {"error": "bad weight"})
-        CTX = {"image": img, "fmt": fmt, "lat": lat, "lon": lon, "user_weight_g": user_wt, "lang": str(b.get("language", "en"))[:5], "no_save": b.get("no_save") is True,
-               "deadline": time.time() + (context.get_remaining_time_in_millis() / 1000 if context else 29) - 5}
+        _ctx_store.set({
+            "image": img, "fmt": fmt, "lat": lat, "lon": lon, "user_weight_g": user_wt,
+            "lang": str(b.get("language", "en"))[:5], "no_save": b.get("no_save") is True,
+            "deadline": time.time() + (context.get_remaining_time_in_millis() / 1000 if context else 29) - 5
+        })
     except Exception:
         return _json(400, {"error": "bad request"})
     try:

@@ -22,17 +22,20 @@ def _table():
     return _t
 
 
-def _json(status, body):
+def _json(status, body, cache_control=None):
     def _default(obj):
         if isinstance(obj, Decimal):
             return float(obj)
         raise TypeError
+    headers = {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*",
+    }
+    if cache_control:
+        headers["cache-control"] = cache_control
     return {
         "statusCode": status,
-        "headers": {
-            "content-type": "application/json",
-            "access-control-allow-origin": "*",
-        },
+        "headers": headers,
         "body": json.dumps(body, default=_default),
     }
 
@@ -77,7 +80,10 @@ def _post(body_str):
 def _get():
     """Return all active (non-expired) pickup requests, newest first."""
     now_epoch = int(datetime.now(timezone.utc).timestamp())
-    items, kw = [], {}
+    items, kw = [], {
+        "ProjectionExpression": "id, lat, lon, description, #st, created_at, expires_at",
+        "ExpressionAttributeNames": {"#st": "status"},
+    }
     while True:
         r = _table().scan(**kw)
         items += r.get("Items", [])
@@ -90,7 +96,7 @@ def _get():
         if i.get("status") == "active" and int(i.get("expires_at", 0)) > now_epoch
     ]
     active.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    return _json(200, {"pickups": active, "count": len(active)})
+    return _json(200, {"pickups": active, "count": len(active)}, cache_control="public, max-age=15, stale-while-revalidate=60")
 
 
 def handler(event, _context):

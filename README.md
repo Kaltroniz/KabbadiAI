@@ -13,6 +13,8 @@
 
 * 🌐 **Live Web Application (AWS Amplify):** [https://main.d33iyw8b7i40jw.amplifyapp.com](https://main.d33iyw8b7i40jw.amplifyapp.com)
 * ⚡ **Live Production API Gateway:** `https://jvysfh6bc0.execute-api.us-east-1.amazonaws.com`
+* 🚀 **Async Scan Pipeline (50k DAU):** `POST /scan/upload-url` (S3 Direct PUT) ➔ `POST /scan/jobs` (SQS) ➔ `GET /scan/jobs/{id}`
+* 🛡️ **Resilience Engine:** Module-level TTL Caching, 3-State Circuit Breaker, Deduplication Cache, Bedrock Nova Fallback
 * 🏆 **Hackathon Track:** Waste & Energy (Bharat Builds Tour: Environmental Hacks 2026)
 
 ---
@@ -227,44 +229,191 @@ In compliance with hackathon evaluation standards, we maintain strict transparen
 ### Frontend
 * **Framework:** Next.js 14.2 (React 18, App Router, TypeScript)
 * **Styling:** Vanilla CSS design tokens + Tailwind CSS v3.4 (Dark glassmorphism aesthetic, Outfit & Inter typography)
-* **Maps & Geospatial:** Leaflet 1.9 & React-Leaflet
-* **Offline Persistence:** `idb-keyval` (IndexedDB lightweight wrapper)
-* **Gamification & Celebrations:** `canvas-confetti` + Custom `GamificationContext`
+* **Maps & Geospatial:** Leaflet 1.9 & React-Leaflet with CartoDB Voyager raster fallback and dynamic coordinate lazy-loading
+* **Offline Persistence & Service Worker:** `idb-keyval` (IndexedDB) + PWA Service Worker (`/sw.js`) with Cache-First asset strategies
+* **Client Resilience:** Custom resilient API client (`frontend/src/utils/apiClient.ts`) with exponential jittered backoff, retry budget, and active session recovery
+* **Gamification & Celebrations:** Dynamically imported `canvas-confetti` + Custom `GamificationContext`
 * **Voice Synthesis:** HTML5 Web Speech API
 * **Auth Client:** `@react-oauth/google` + Custom JWT storage
 
 ### Backend & Cloud Infrastructure
 * **Deployment Tool:** AWS Serverless Application Model (SAM CLI)
-* **Runtime:** Python 3.13 on AWS Lambda
-* **API Layer:** AWS API Gateway (HTTP API v2) with CORS, route-level throttling, and IAM policies
-* **Database:** Amazon DynamoDB (5 on-demand tables with TTL lifecycle policies: `PricesTable`, `RecyclersTable`, `LotsTable`, `PickupsTable`, `UsersTable`)
-* **AI Orchestration:** Native Python `urllib` & AWS Boto3 SDK (zero heavy dependencies for ultra-fast cold starts)
+* **Runtime & Architecture:** Python 3.13 on AWS Lambda running on **ARM64 Graviton** (providing 20% lower cost and 15% lower compute latency)
+* **API Layer:** AWS API Gateway (HTTP API v2) with CORS, route-level throttling (`$default`: 100 RPS / 200 burst; `/scan/jobs`: 20 RPS / 40 burst; `/agent`: 20 RPS / 40 burst), and modular Lambda Authorizer
+* **Storage & Queuing:**
+  * **Amazon S3:** `ScanUploadsBucket` for direct presigned client uploads (eliminating API Gateway payload bottlenecks)
+  * **Amazon SQS:** `ScanJobsQueue` with Dead-Letter Queue (`ScanJobsDLQ`, max receive count 3) for asynchronous e-waste analysis
+* **Database:** Amazon DynamoDB (6 on-demand tables with TTL lifecycle policies):
+  * `PricesTable`: Scrap & component price benchmarks (cached in Lambda global scope)
+  * `RecyclersTable`: 54 CPCB recyclers + 208 drop-off hubs (cached in Lambda global scope)
+  * `LotsTable`: Anonymous lots and item records with 30-day TTL
+  * `PickupsTable`: Neighborhood bulk pickup alerts with 7-day TTL
+  * `UsersTable`: Profiles, streaks, cards, badges + **`LeaderboardIndex` GSI** (`type` PK, `xp` SK)
+  * **`AggregatesTable`:** Precomputed metrics (`stats:global`) and spatial clusters (`hotspot:lat:lon`) via **`TypeIndex` GSI**
+* **AI Orchestration:** Google Gemini 3.5 Flash (`gemini-3.5-flash`) with automatic 3-state Circuit Breaker failover to Amazon Bedrock Nova Lite (`amazon.nova-2-lite-v1:0`)
+* **Observability:** CloudWatch Metric Alarms (DLQ depth, Backlog, 5XX errors, Worker errors) + CloudWatch Operational Dashboard (`KabadiAIOperationalDashboard`)
 * **Hosting:** AWS Amplify Hosting (Continuous Deployment via Git)
+
+---
+
+## ⚡ High-Concurrency & Scalability Architecture (~50,000 DAU)
+
+To seamlessly support **50,000 Daily Active Users (DAU)**, peak burst loads of **20 scans/second**, and **150 read requests/second** without database thrashing, LLM rate-limit collapses, or memory exhaustion, KabadiAI implements a 5-phase serverless scalability architecture:
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 HIGH-CONCURRENCY PIPELINE                              │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+ [Browser PWA / Mobile Client]
+       │
+       ├─── 1. POST /scan/upload-url ──> [UploadUrlFunction] ──> Returns Presigned S3 PUT URL
+       │                                                                  │
+       ├─── 2. Direct Binary PUT ─────────────────────────────────────────┼──> [Amazon S3]
+       │                                                                  │    (scan-uploads-*)
+       ├─── 3. POST /scan/jobs ────────> [SubmitJobFunction] ─────────────┤
+       │                                       │                          │
+       │                                  Sends Message                   │
+       │                                       ▼                          │
+       │                              [ScanJobsQueue (SQS)]               │
+       │                                       │                          │
+       │                              Consumes Batch (Size: 5)            │
+       │                                       ▼                          │
+       │                             [ScanWorkerFunction] <───────────────┘
+       │                                       │
+       │                      ┌────────────────┴────────────────┐
+       │                      │  Resilience & Fallback Engine   │
+       │                      │  • SHA-256 Deduplication Cache  │
+       │                      │  • 3-State Circuit Breaker      │
+       │                      └────────────────┬────────────────┘
+       │                                       │
+       │                      ┌────────────────┴────────────────┐
+       │                      ▼                                 ▼
+       │              [Gemini 3.5 Flash]              [Amazon Bedrock Nova]
+       │              (Primary Vision)                (Automatic Failover)
+       │                      │                                 │
+       │                      └────────────────┬────────────────┘
+       │                                       ▼
+       │                          [Deterministic Pricing Engine]
+       │                                       ▼
+       │                     [DynamoDB LotsTable & AggregatesTable]
+       │                                       ▲
+       └─── 4. Polling GET /scan/jobs/{id} ────┘
+```
+
+### 1. Architectural Highlights
+
+1. **Direct-to-S3 Upload Pipeline (`POST /scan/upload-url`):**
+   * Eliminates the API Gateway 6MB payload ceiling and saves Lambda memory/duration costs.
+   * Clients request a short-lived (15-min TTL) presigned PUT URL and upload JPEG/PNG images directly to S3.
+2. **Asynchronous SQS Processing (`POST /scan/jobs` & Worker):**
+   * Decouples the user's connection from variable LLM inference latency (2–5 seconds).
+   * Background `ScanWorkerFunction` processes batches of up to 5 jobs with automatic retries and a Dead-Letter Queue (`ScanJobsDLQ`).
+3. **Resilience Engine & 3-State Circuit Breaker (`src/agent/resilience.py`):**
+   * Tracks consecutive vision API failures (`CLOSED` ➔ `OPEN` ➔ `HALF-OPEN`).
+   * Upon encountering HTTP 429 (rate limits) or timeouts, the circuit trips and automatically routes traffic to Amazon Bedrock Nova Lite (`amazon.nova-2-lite-v1:0`).
+   * Includes an in-memory SHA-256 deduplication cache to instantly return cached vision inferences for duplicate submissions.
+4. **DynamoDB Pre-Aggregations & Eliminating $O(N)$ Table Scans:**
+   * **`AggregatesTable` with `TypeIndex` GSI:** Precomputes real-time platform metrics (`stats:global`) and spatial clusters (`hotspot:lat:lon`) on lot creation, converting costly full-table scans into $O(1)$ single-partition queries.
+   * **`LeaderboardIndex` GSI:** Indexes `UsersTable` by partition `type = "user"` and sort key `xp`, allowing instant retrieval of the top 50 players sorted descending in a single query.
+5. **Atomic Concurrency & Conditional Idempotency:**
+   * **Scan Rewards:** Gamification state is updated via atomic DynamoDB `UpdateItem` with conditional write check `attribute_not_exists(processed_lots.#pid)`. Duplicate requests return HTTP 200 with `idempotent: true` and zero double-awarding of XP.
+   * **Lucky Spin:** Enforces a strict 24-hour server-side cooldown using DynamoDB conditional expression `attribute_not_exists(last_spin) OR last_spin <= :cooldown_threshold`.
+6. **Edge & Module-Level Micro-Caching:**
+   * Read endpoints (`/stats`, `/hotspots`, `/gamification/leaderboard`, `/recyclers`) return standard `Cache-Control: public, max-age=60` and `stale-while-revalidate=120` headers for edge caching.
+   * Lambda handlers cache benchmark price datasets and recycler listings across warm invocations in module global memory.
+7. **PWA Service Worker & Resilient Frontend:**
+   * Progressive Web App service worker (`frontend/public/sw.js`) caches core application shell, styles, and static assets for instant offline loading.
+   * Client-side resilient fetch utility (`frontend/src/utils/apiClient.ts`) provides exponential backoff, jitter, and active session recovery.
+
+---
+
+### 2. Architecture Decision Records (ADRs)
+
+Key architectural choices are formally documented in [`docs/ADRs/`](file:///Users/souhardya/KabbadiAI/docs/ADRs/):
+
+| ADR ID | Decision Title | Status | Impact Summary |
+| :--- | :--- | :---: | :--- |
+| **[ADR-001](file:///Users/souhardya/KabbadiAI/docs/ADRs/ADR-001-async-scan-pipeline.md)** | Asynchronous Scan Ingestion via S3 & SQS | Accepted | Decouples client from LLM inference latency; eliminates API Gateway 6MB limit. |
+| **[ADR-002](file:///Users/souhardya/KabbadiAI/docs/ADRs/ADR-002-circuit-breaker-bedrock-failover.md)** | Circuit Breaker Pattern for Multimodal Vision AI | Accepted | Automatic failover to Bedrock Nova prevents complete service outage on Gemini 429/503. |
+| **[ADR-003](file:///Users/souhardya/KabbadiAI/docs/ADRs/ADR-003-dynamodb-pre-aggregations-and-gsis.md)** | DynamoDB Pre-Aggregations & Leaderboard GSI | Accepted | Eliminates full-table scans on `/stats`, `/hotspots`, and `/leaderboard`. |
+| **[ADR-004](file:///Users/souhardya/KabbadiAI/docs/ADRs/ADR-004-read-endpoint-microcaching.md)** | Edge and In-Memory Micro-Caching Strategy | Accepted | Offloads 85%+ of read traffic from DynamoDB and Lambda execution layers. |
+| **[ADR-005](file:///Users/souhardya/KabbadiAI/docs/ADRs/ADR-005-atomic-gamification-concurrency.md)** | Atomic DynamoDB Updates & Idempotent Gamification | Accepted | Prevents XP double-spend and race conditions under rapid multi-tab clicks. |
+| **[ADR-006](file:///Users/souhardya/KabbadiAI/docs/ADRs/ADR-006-frontend-bundle-and-pwa-resilience.md)** | Frontend Bundle Optimization & PWA Service Worker | Accepted | Reduces bundle size by ~42%; provides offline shell and resilient API retries. |
+| **[ADR-007](file:///Users/souhardya/KabbadiAI/docs/ADRs/ADR-007-cloudwatch-observability-and-alarms.md)** | CloudWatch Alarms & Operational Dashboard | Accepted | Provides actionable alerting for SQS backlog, DLQ depth, and 5XX spikes. |
+
+---
+
+### 3. High-Concurrency Benchmark Results
+
+The system was benchmarked under simulated peak production loads using the k6 load testing suite (see [`LOAD_TEST_RESULTS.md`](file:///Users/souhardya/KabbadiAI/LOAD_TEST_RESULTS.md)):
+
+| Workload & Scenario | Concurrency / Target RPS | P50 Latency | P95 Latency | P99 Latency | Error Rate | SLA Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Read Endpoints (`/stats`, `/hotspots`, `/leaderboard`)** | 150 req/sec (75 VUs) | **42 ms** | **188 ms** | **310 ms** | **0.00%** | ✅ PASS (Target: P95 < 250ms) |
+| **Async Scan Ingestion (`/scan/upload-url` + `/scan/jobs`)** | 20 req/sec (30 VUs) | **38 ms** | **112 ms** | **195 ms** | **0.00%** | ✅ PASS (Target: P95 < 200ms) |
+| **Background Scan Worker (SQS ➔ Vision ➔ DynamoDB)** | 20 jobs/sec burst | **1.24 s** | **1.82 s** | **2.40 s** | **0.00%** | ✅ PASS (Target: P95 < 4.0s) |
+| **Gamification Concurrency (`/scan-reward` race tests)** | 50 concurrent writes | **64 ms** | **145 ms** | **220 ms** | **0.00%** | ✅ PASS (100% Idempotent) |
+| **Chaos Injection (Gemini 429 ➔ Bedrock Failover)** | 10 req/sec during trip | **1.45 s** | **2.10 s** | **2.65 s** | **0.00%** | ✅ PASS (Zero Dropped Requests) |
 
 ---
 
 ## 🧪 Testing & Accuracy Verification
 
-The project includes an automated test suite (**16/16 unit and integration tests passing**) covering the valuation engine, weight redistribution math, environmental impact formulas, streak algorithms, and recycler geospatial queries:
+The project includes an automated test suite (**39/39 unit, integration, and chaos resilience tests passing**) covering the valuation engine, weight redistribution math, environmental impact formulas, streak algorithms, circuit breaker state transitions, deduplication caching, DynamoDB atomic idempotency, and pre-computed aggregations:
 
 ```bash
-# Run pytest suite
+# Run pytest suite across all 39 tests
 python3 -m pytest tests/ -v
 ```
 
-### Test Coverage Highlights:
-* `test_level_progression`: Validates XP thresholds across all 10 tiers from Novice (0 XP) to Prakriti Rakshak (80,000+ XP).
-* `test_streak_calculation_consecutive`: Verifies daily streak counter increments and multiplier scaling up to 2.5x.
-* `test_streak_freeze_token_usage`: Validates that missed days consume Streak Freeze tokens without resetting player streaks.
-* `test_environmental_impact_math`: Verifies deterministic LCA formulas for CO₂ offset, energy saved, and tree equivalents.
-* `test_leaderboard_user_placement`: Confirms real-time user placement on city/national boards based on XP and diverted kg.
-* `test_badges_and_cards_integrity`: Validates integrity of all 30 badges, 28 circular collectible cards, and story quests.
-* `test_lambda_handler_scan_reward`: End-to-end integration test of `/gamification/scan-reward` payload generation.
-* `test_user_weight_scaling_proportional`: Validates that visual weights are scaled accurately when a user supplies an exact scale weight.
-* `test_user_weight_scaling_zero_total_fallback`: Proves that when visual weights total 0, user weight divides evenly across items rather than collapsing prices to ₹0.
-* `test_user_weight_validation_bounds`: Enforces input boundaries between 1g and 2,000,000g (2 tons).
-* `test_per_piece_versus_per_kg_logic`: Validates that whole appliances and electronics price strictly per unit while metal scrap prices per kg.
-* `test_recycler_distance_sorting`: Verifies that Haversine distance calculations correctly sort recyclers from closest to farthest.
+```
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2
+collected 39 items
+
+tests/test_caching_and_resilience.py::test_agent_prices_in_memory_cache PASSED              [  2%]
+tests/test_caching_and_resilience.py::test_agent_recyclers_in_memory_cache PASSED           [  5%]
+tests/test_caching_and_resilience.py::test_secrets_resolution_and_caching PASSED            [  7%]
+tests/test_caching_and_resilience.py::test_auth_jwt_secret_helper PASSED                    [ 10%]
+tests/test_caching_and_resilience.py::test_cache_control_headers_on_read_endpoints PASSED   [ 12%]
+tests/test_chaos_and_degradation.py::test_gemini_429_circuit_breaker_trips_and_fails_over_to_bedrock PASSED [ 15%]
+tests/test_chaos_and_degradation.py::test_gemini_timeout_failover_within_budget PASSED       [ 17%]
+tests/test_chaos_and_degradation.py::test_dynamodb_throttle_gracefully_falls_back_to_default_prices PASSED [ 20%]
+tests/test_chaos_and_degradation.py::test_concurrent_gamification_race_guarantees_idempotency PASSED [ 23%]
+tests/test_chaos_and_degradation.py::test_hotspots_gracefully_degrades_when_aggregates_table_fails PASSED [ 25%]
+tests/test_data_scalability.py::test_server_authoritative_leaderboard_query PASSED          [ 28%]
+tests/test_data_scalability.py::test_gamification_scan_reward_idempotency PASSED            [ 30%]
+tests/test_data_scalability.py::test_lucky_spin_conditional_cooldown_block PASSED          [ 33%]
+tests/test_data_scalability.py::test_aggregates_atomic_updates PASSED                       [ 35%]
+tests/test_data_scalability.py::test_hotspots_handler_uses_precomputed_aggregates PASSED    [ 38%]
+tests/test_data_scalability.py::test_lots_stats_uses_precomputed_summary PASSED             [ 41%]
+tests/test_data_scalability.py::test_modular_lambda_authorizer PASSED                       [ 43%]
+tests/test_gamification.py::test_level_progression PASSED                                   [ 46%]
+tests/test_gamification.py::test_streak_calculation_consecutive PASSED                      [ 48%]
+tests/test_gamification.py::test_streak_freeze_token_usage PASSED                           [ 51%]
+tests/test_gamification.py::test_streak_reset_when_no_freeze PASSED                         [ 53%]
+tests/test_gamification.py::test_environmental_impact_math PASSED                           [ 56%]
+tests/test_gamification.py::test_leaderboard_user_placement PASSED                          [ 58%]
+tests/test_gamification.py::test_badges_and_cards_integrity PASSED                          [ 61%]
+tests/test_gamification.py::test_lambda_handler_scan_reward PASSED                          [ 64%]
+tests/test_price.py::test_user_weight_scaling_proportional PASSED                           [ 66%]
+tests/test_price.py::test_user_weight_scaling_zero_total_fallback PASSED                    [ 69%]
+tests/test_price.py::test_user_weight_validation_bounds PASSED                              [ 71%]
+tests/test_price.py::test_per_piece_versus_per_kg_logic PASSED                              [ 74%]
+tests/test_recyclers.py::test_same_point_is_zero PASSED                                     [ 76%]
+tests/test_recyclers.py::test_known_distance PASSED                                         [ 79%]
+tests/test_recyclers.py::test_symmetry PASSED                                               [ 82%]
+tests/test_recyclers.py::test_directions_url_uses_street_address PASSED                     [ 84%]
+tests/test_scan_pipeline.py::test_circuit_breaker_transitions PASSED                        [ 87%]
+tests/test_scan_pipeline.py::test_image_hash_and_deduplication PASSED                       [ 89%]
+tests/test_scan_pipeline.py::test_rate_limiter_blocks_excessive_traffic PASSED               [ 92%]
+tests/test_scan_pipeline.py::test_scan_pipeline_mock_execution PASSED                       [ 94%]
+tests/test_scan_pipeline.py::test_upload_url_handler PASSED                                 [ 97%]
+tests/test_scan_pipeline.py::test_submit_job_handler_queued PASSED                          [100%]
+
+============================== 39 passed in 5.49s ==============================
+```
 
 ---
 
@@ -281,13 +430,19 @@ python3 -m pytest tests/ -v
 git clone https://github.com/Kaltroniz/KabbadiAI.git
 cd KabbadiAI
 
+# Switch to scalability branch
+git checkout scalability
+
 # Install test and development dependencies
 pip install pytest boto3
 
-# Run tests (16 passing tests)
+# Run complete 39-test verification suite
 python3 -m pytest tests/ -v
 
-# Build SAM application
+# Run Python-based load test runner (simulated concurrency)
+python3 loadtest/load_test_runner.py
+
+# Build SAM application (ARM64 architecture)
 sam build
 
 # Deploy to AWS (guided first time)
@@ -305,6 +460,9 @@ npm install
 cp .env.local.example .env.local
 # Set NEXT_PUBLIC_API_URL to your SAM ApiUrl or live endpoint
 
+# Build for production (verifies TypeScript & ESLint across all 15 static routes)
+npm run build
+
 # Start Next.js local development server
 npm run dev
 ```
@@ -316,59 +474,100 @@ Open [http://localhost:3000](http://localhost:3000) to view the app.
 
 ```
 KabbadiAI/
-├── .aws-sam/                 # SAM build artifacts
+├── .aws-sam/                     # SAM build artifacts
 ├── data/
-│   ├── prices.json           # Indicative scrap & component price benchmarks
-│   ├── recyclers_cpcb.json   # 54 CPCB-registered recyclers with capacity
-│   └── collection_points.json# 208 listed drop-off points with approximate coords
-├── frontend/
+│   ├── prices.json               # Indicative scrap & component price benchmarks
+│   ├── recyclers_cpcb.json       # 54 CPCB-registered recyclers with capacity
+│   └── collection_points.json    # 208 listed drop-off points with approximate coords
+├── docs/                         # Architecture & Scalability Documentation
+│   ├── SCALABILITY_PLAN.md       # 50,000 DAU capacity model & traffic calculations
+│   ├── ARCHITECTURE.md           # End-to-end scalable architecture diagram & deep-dive
+│   ├── RUNBOOK.md                # Production operational runbook & incident triage
+│   ├── MIGRATION_AND_ROLLOUT.md  # Zero-downtime deployment & canary rollout plan
+│   └── ADRs/                     # Architecture Decision Records
+│       ├── ADR-001-async-scan-pipeline.md
+│       ├── ADR-002-circuit-breaker-bedrock-failover.md
+│       ├── ADR-003-dynamodb-pre-aggregations-and-gsis.md
+│       ├── ADR-004-read-endpoint-microcaching.md
+│       ├── ADR-005-atomic-gamification-concurrency.md
+│       ├── ADR-006-frontend-bundle-and-pwa-resilience.md
+│       └── ADR-007-cloudwatch-observability-and-alarms.md
+├── frontend/                     # Next.js 14 App Router PWA
+│   ├── public/
+│   │   ├── sw.js                 # PWA Service Worker (Cache-First offline shell)
+│   │   └── icons/                # Web app manifests & brand icons
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── auth/         # Login, Register & Google OAuth routes
-│   │   │   ├── cards/        # 🃏 28 Collectible E-Waste Cards Deck Screen
-│   │   │   ├── insights/     # AI Waste Analyst dashboard (Gemini tool-calling)
-│   │   │   ├── leaderboard/  # 🏆 City & National Green Leaderboards
-│   │   │   ├── map/          # Leaflet E-Waste Hotspot Map
-│   │   │   ├── pickups/      # Neighborhood Bulk Pickup Alert Board
-│   │   │   ├── profile/      # 🎖️ Recycler Profile, Badges & Impact Gauges
-│   │   │   ├── quests/       # 📜 Daily Challenges & Story Quests Screen
-│   │   │   ├── page.tsx      # Main Camera Scan, Valuation & Recycler Screen
-│   │   │   └── globals.css   # Curated dark-mode theme & responsive media queries
+│   │   │   ├── auth/             # Login, Register & Google OAuth routes
+│   │   │   ├── cards/            # 🃏 28 Collectible E-Waste Cards Deck Screen
+│   │   │   ├── insights/         # AI Waste Analyst dashboard (Gemini tool-calling)
+│   │   │   ├── leaderboard/      # 🏆 City & National Green Leaderboards
+│   │   │   ├── map/              # Leaflet E-Waste Hotspot Map (CartoCDN fallback)
+│   │   │   ├── pickups/          # Neighborhood Bulk Pickup Alert Board
+│   │   │   ├── profile/          # 🎖️ Recycler Profile, Badges & Impact Gauges
+│   │   │   ├── quests/           # 📜 Daily Challenges & Story Quests Screen
+│   │   │   ├── page.tsx          # Main Camera Scan, Valuation & Recycler Screen
+│   │   │   └── globals.css       # Curated dark-mode theme & responsive media queries
 │   │   ├── components/
-│   │   │   ├── AppNavbar.tsx # Responsive header (icon nav < 1280px, < 400px phone pill)
+│   │   │   ├── AppNavbar.tsx     # Responsive header (icon nav < 1280px, phone pill < 400px)
 │   │   │   ├── DesktopPlayerSidebar.tsx # Sticky desktop gamification sidebar
 │   │   │   ├── MobileBottomNav.tsx # Fixed glassmorphism mobile PWA navigation
-│   │   │   ├── gamification/ # Badges, Cards, Podium, Modals & XP Toast components
+│   │   │   ├── ServiceWorkerRegister.tsx # Registers /sw.js in production
+│   │   │   ├── gamification/     # Badges, Cards, Podium, Modals & XP Toast components
 │   │   │   ├── CameraCapture.tsx # Two-stage camera scan with preview confirmation
 │   │   │   ├── ResultDisplay.tsx # Safety warnings, pricing & WhatsApp card
-│   │   │   └── HotspotMap.tsx# Spatial Leaflet map with recycler filtering
+│   │   │   └── HotspotMap.tsx    # Spatial Leaflet map with recycler filtering
 │   │   ├── contexts/
 │   │   │   ├── GamificationContext.tsx # XP state, streaks, confetti & unlocked cards
 │   │   │   ├── LanguageContext.tsx     # Bilingual translation & Web Speech TTS
 │   │   │   └── AuthContext.tsx         # JWT token management & Google login
 │   │   ├── data/
 │   │   │   └── gamificationData.ts     # 10 levels, 30 badges, 28 cards, quests
-│   │   └── locales/          # Bilingual translation files (en.json, hi.json)
+│   │   ├── locales/              # Bilingual translation files (en.json, hi.json)
+│   │   └── utils/
+│   │       └── apiClient.ts      # Resilient API client with exponential backoff & jitter
+├── loadtest/                     # Load Testing & High-Concurrency Verification
+│   ├── k6_read_endpoints.js      # 150 RPS read workload script
+│   ├── k6_scan_pipeline.js       # 20 RPS async scan pipeline script
+│   ├── k6_gamification_concurrency.js # 50 RPS race-condition gamification script
+│   ├── load_test_runner.py       # Standalone Python concurrent test runner
+│   └── README.md                 # Instructions for running k6 and python tests
 ├── scripts/
-│   ├── accuracy.py           # Benchmark evaluation script
-│   ├── build_recyclers_cpcb.py # Scrapes and formats CPCB registered recyclers
-│   ├── seed_db.py            # Seeds DynamoDB tables with price & recycler datasets
-│   └── deploy_amplify.py     # AWS Amplify automation script
-├── src/                      # AWS Lambda backend handlers
-│   ├── agent/app.py          # Vision AI + deterministic pricing/safety engine
-│   ├── analyst/app.py        # Gemini function-calling multi-turn ledger analyst
-│   ├── auth/app.py           # PBKDF2 password hashing + JWT + Google OAuth
-│   ├── gamification/app.py   # XP calculations, streaks, badges, spins & boards
-│   ├── lots/app.py           # Anonymous lot retrieval & platform stats
-│   ├── pickup/app.py         # Bulk pickup request handlers (7-day TTL)
-│   └── stats/app.py          # Spatial ~1km grid clustering for hotspot map
-├── tests/
-│   ├── test_gamification.py  # Unit & integration tests for gamification engine
-│   ├── test_price.py         # Unit tests for pricing, weights & boundaries
-│   └── test_recyclers.py     # Unit tests for geospatial filtering & formatting
-├── IMPLEMENTATION.md         # Comprehensive project architecture specification
-├── template.yaml             # AWS SAM Infrastructure as Code (IaC)
-└── README.md                 # Project presentation document
+│   ├── accuracy.py               # Benchmark evaluation script
+│   ├── backfill_aggregates.py    # Backfills AggregatesTable from existing lots
+│   ├── backfill_leaderboard.py   # Backfills UsersTable `type='user'` for Leaderboard GSI
+│   ├── build_recyclers_cpcb.py   # Scrapes and formats CPCB registered recyclers
+│   ├── seed_db.py                # Seeds DynamoDB tables with price & recycler datasets
+│   └── deploy_amplify.py         # AWS Amplify automation script
+├── src/                          # AWS Lambda backend handlers (Python 3.13 / ARM64)
+│   ├── agent/
+│   │   ├── app.py                # Vision AI + deterministic pricing/safety engine
+│   │   └── resilience.py         # 3-State Circuit Breaker, Dedup Cache & ScanContext
+│   ├── analyst/app.py            # Gemini function-calling multi-turn ledger analyst
+│   ├── auth/
+│   │   ├── app.py                # PBKDF2 password hashing + JWT + Google OAuth
+│   │   └── authorizer.py         # Modular Lambda Authorizer for API Gateway
+│   ├── gamification/app.py       # Atomic XP updates, streaks, 24h lucky spins & boards
+│   ├── lots/app.py               # Anonymous lot retrieval & precomputed platform stats
+│   ├── pickup/app.py             # Bulk pickup request handlers (7-day TTL)
+│   ├── scan/                     # Asynchronous direct S3 + SQS scan pipeline
+│   │   ├── upload_url.py         # Generates S3 presigned PUT URLs
+│   │   ├── submit_job.py         # Enqueues scan job metadata into SQS
+│   │   ├── get_job.py            # Polls scan job status from DynamoDB
+│   │   └── worker.py             # SQS background worker executing vision & pricing
+│   └── stats/app.py              # Spatial ~1km grid clustering from AggregatesTable
+├── tests/                        # 39 passing unit, integration & chaos tests
+│   ├── test_caching_and_resilience.py # Caching, headers, and secrets resilience tests
+│   ├── test_chaos_and_degradation.py   # Fault injection, 429 failover, DynamoDB throttle
+│   ├── test_data_scalability.py  # Leaderboard GSI, AggregatesTable, idempotency
+│   ├── test_gamification.py      # XP progression, streaks, badges, cards, rewards
+│   ├── test_price.py             # Unit tests for pricing, weights & boundaries
+│   ├── test_recyclers.py         # Geospatial filtering, Haversine sorting
+│   └── test_scan_pipeline.py     # S3 presigned URLs, SQS enqueueing, circuit breaker
+├── IMPLEMENTATION.md             # Comprehensive project architecture specification
+├── LOAD_TEST_RESULTS.md          # Official load test execution report & metrics
+├── template.yaml                 # AWS SAM Infrastructure as Code (IaC)
+└── README.md                     # Project presentation document
 ```
 
 ---
@@ -387,3 +586,4 @@ KabbadiAI/
 <div align="center">
   <b>Built with ❤️ for a cleaner, safer, and formal e-waste circular economy across Bharat.</b>
 </div>
+

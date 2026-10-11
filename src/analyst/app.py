@@ -5,6 +5,7 @@ import json, os, time, urllib.request
 import boto3
 
 TABLE, KEY = os.environ.get("LOTS_TABLE", ""), os.environ.get("GEMINI_API_KEY", "")
+AGGREGATES_TABLE = os.environ.get("AGGREGATES_TABLE", "")
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 MAX_ROUNDS = 4
 _t = None
@@ -12,7 +13,9 @@ _t = None
 def _lots():
     global _t
     _t = _t or boto3.resource("dynamodb").Table(TABLE)
-    items, kw = [], {}
+    items, kw = [], {
+        "ProjectionExpression": "cell_lat, cell_lon, items, hazards, total_min_inr, total_max_inr, mock"
+    }
     while True:
         r = _t.scan(**kw); items += r.get("Items", [])
         if "LastEvaluatedKey" not in r: break

@@ -374,16 +374,83 @@ def get_mock_leaderboard(city="delhi", user_id="me", user_name="You", user_xp=12
 
     return board[:20]
 
+def get_db_leaderboard(city="delhi", user_email=None):
+    """Queries LeaderboardIndex on UsersTable to return server-authoritative leaderboard."""
+    if not USERS_TABLE:
+        return None, 0, 0.0
+    try:
+        t = _table(USERS_TABLE)
+        if not t:
+            return None, 0, 0.0
+
+        key = f"city#{city.lower()}" if city.lower() in ("delhi", "delhi-ncr", "ncr", "mumbai", "bangalore") else "national"
+        res = t.query(
+            IndexName="LeaderboardIndex",
+            KeyConditionExpression="leaderboard_key = :lk",
+            ExpressionAttributeValues={":lk": key},
+            ScanIndexForward=False,
+            Limit=20,
+        )
+        items = res.get("Items", [])
+        if not items:
+            return None, 0, 0.0
+
+        caller_user = None
+        if user_email and "@" in user_email:
+            try:
+                caller_user = t.get_item(Key={"email": user_email.lower()}).get("Item")
+            except Exception:
+                pass
+
+        board = []
+        user_in_board = False
+        caller_email = user_email.lower() if user_email else ""
+        for i, it in enumerate(items):
+            is_me = (it.get("email", "").lower() == caller_email) if caller_email else False
+            if is_me: user_in_board = True
+            board.append({
+                "rank": i + 1,
+                "user_id": it.get("id", f"user_{i}"),
+                "name": f"{it.get('name', 'Eco Recycler')}{' (You)' if is_me else ''}",
+                "xp": int(it.get("xp", 0)),
+                "kg_diverted": float(it.get("kg_diverted", 0.0)),
+                "avatar": it.get("avatar") or f"https://api.dicebear.com/7.x/bottts/svg?seed={it.get('name', 'User')}",
+                "is_current_user": is_me,
+                "level": calculate_level(int(it.get("xp", 0)))["name"],
+            })
+
+        if caller_user and not user_in_board:
+            caller_xp = int(caller_user.get("xp", 0))
+            caller_kg = float(caller_user.get("kg_diverted", 0.0))
+            board.append({
+                "rank": len(board) + 1,
+                "user_id": caller_user.get("id", "me"),
+                "name": f"{caller_user.get('name', 'You')} (You)",
+                "xp": caller_xp,
+                "kg_diverted": caller_kg,
+                "avatar": caller_user.get("avatar") or "https://api.dicebear.com/7.x/bottts/svg?seed=You",
+                "is_current_user": True,
+                "level": calculate_level(caller_xp)["name"],
+            })
+
+        return board, len(board) * 120, float(sum(it.get("kg_diverted", 0.0) for it in board))
+    except Exception as e:
+        print("DB Leaderboard query exception (fallback to seeded demo):", repr(e))
+        return None, 0, 0.0
+
 # ─── RESPONSE HELPER ───────────────────────────────────────────────────────
-def _res(status, body):
+def _res(status, body, cache_control=None):
+    headers = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST,GET,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization"
+    }
+    if cache_control:
+        headers["Cache-Control"] = cache_control
     return {
         "statusCode": status,
-        "headers": {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST,GET,OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type,Authorization"
-        },
+        "headers": headers,
         "body": json.dumps(body)
     }
 
@@ -400,6 +467,7 @@ def handler(event, context):
         if "/scan-reward" in path:
             body = json.loads(event.get("body") or "{}")
             user_id = body.get("user_id") or "guest"
+            lot_id = body.get("lot_id") or body.get("job_id")
             items = body.get("items", [])
             hazards = body.get("hazards", [])
             has_coords = bool(body.get("has_coords"))
@@ -461,11 +529,55 @@ def handler(event, context):
             # 4. Check for Lucky Spin trigger (1 in 10 chance or if multiple items)
             lucky_trigger = (random.random() < 0.20) or (len(items) >= 3)
 
+            # 5. Atomic database update with idempotency protection
+            already_awarded = False
+            server_xp = None
+            if USERS_TABLE and user_id and user_id != "guest" and "@" in user_id:
+                try:
+                    tbl = _table(USERS_TABLE)
+                    if tbl:
+                        up_expr = "ADD xp :xp, kg_diverted :kg, total_scans :one SET last_scan_date = :today, current_streak = :st, freeze_tokens = :ft, leaderboard_key = :lk"
+                        expr_vals = {
+                            ":xp": total_earned_xp,
+                            ":kg": Decimal(str(impact["total_weight_kg"])),
+                            ":one": 1,
+                            ":today": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                            ":st": streak_res["streak"],
+                            ":ft": streak_res["freeze_tokens"],
+                            ":lk": "national",
+                        }
+                        expr_names = {}
+                        cond_expr = None
+                        if lot_id:
+                            expr_names["#pid"] = f"lot_{lot_id}"
+                            expr_vals[":pts"] = int(time.time())
+                            up_expr += ", processed_lots.#pid = :pts"
+                            cond_expr = "attribute_not_exists(processed_lots.#pid)"
+
+                        kw = {
+                            "Key": {"email": user_id.lower()},
+                            "UpdateExpression": up_expr,
+                            "ExpressionAttributeValues": expr_vals,
+                            "ReturnValues": "UPDATED_NEW",
+                        }
+                        if expr_names: kw["ExpressionAttributeNames"] = expr_names
+                        if cond_expr: kw["ConditionExpression"] = cond_expr
+
+                        up_res = tbl.update_item(**kw)
+                        server_xp = int(up_res.get("Attributes", {}).get("xp", total_earned_xp))
+                except Exception as e:
+                    if "ConditionalCheckFailedException" in str(e):
+                        already_awarded = True
+                    else:
+                        print("User atomic reward warning:", repr(e))
+
             return _res(200, {
                 "base_xp": base_xp,
-                "total_xp": total_earned_xp,
+                "total_xp": 0 if already_awarded else total_earned_xp,
+                "server_total_xp": server_xp,
+                "already_awarded": already_awarded,
                 "multiplier": multiplier,
-                "bonuses": bonuses,
+                "bonuses": [] if already_awarded else bonuses,
                 "streak": streak_res,
                 "environmental_impact": impact,
                 "new_cards_unlocked": new_cards,
@@ -480,7 +592,7 @@ def handler(event, context):
                 "collectible_cards": COLLECTIBLE_CARDS,
                 "story_quests": STORY_QUESTS,
                 "challenges": get_current_challenges(),
-            })
+            }, cache_control="public, max-age=60, stale-while-revalidate=300")
 
         # Route 3: GET /gamification/leaderboard
         elif "/leaderboard" in path:
@@ -489,17 +601,34 @@ def handler(event, context):
             user_xp = int(params.get("xp", 1250))
             user_name = params.get("name", "You")
             user_kg = float(params.get("kg", 14.5))
+            caller_email = params.get("email") or params.get("user_id")
 
+            # 1. Attempt server-authoritative GSI query
+            db_board, participants, total_kg = get_db_leaderboard(city=city, user_email=caller_email)
+            if db_board:
+                return _res(200, {
+                    "city": city,
+                    "leaderboard": db_board,
+                    "total_participants": participants,
+                    "city_total_kg": total_kg,
+                    "server_authoritative": True,
+                }, cache_control="public, max-age=30, stale-while-revalidate=120")
+
+            # 2. Resilient demo fallback
             board = get_mock_leaderboard(city=city, user_name=user_name, user_xp=user_xp, user_diverted_kg=user_kg)
             return _res(200, {
                 "city": city,
                 "leaderboard": board,
                 "total_participants": 2840,
                 "city_total_kg": 18450.0,
-            })
+                "server_authoritative": False,
+            }, cache_control="public, max-age=30, stale-while-revalidate=120")
 
         # Route 4: POST /gamification/lucky-spin
         elif "/lucky-spin" in path:
+            body = json.loads(event.get("body") or "{}")
+            user_id = body.get("user_id") or "guest"
+
             # Random weighted spin rewards
             weights = [(50, 0.35), (100, 0.30), (150, 0.15), (200, 0.10), (300, 0.07), (500, 0.03)]
             r = random.random()
@@ -510,6 +639,31 @@ def handler(event, context):
                 if r <= acc:
                     chosen_xp = val
                     break
+
+            # 24-hour conditional cooldown check on UsersTable
+            if USERS_TABLE and user_id and user_id != "guest" and "@" in user_id:
+                tbl = _table(USERS_TABLE)
+                if tbl:
+                    now_epoch = int(time.time())
+                    cooldown_limit = now_epoch - 86400  # 24 hours
+                    try:
+                        tbl.update_item(
+                            Key={"email": user_id.lower()},
+                            UpdateExpression="SET last_spin_epoch = :now ADD xp :won_xp",
+                            ConditionExpression="attribute_not_exists(last_spin_epoch) OR last_spin_epoch < :cooldown",
+                            ExpressionAttributeValues={
+                                ":now": now_epoch,
+                                ":won_xp": chosen_xp,
+                                ":cooldown": cooldown_limit,
+                            }
+                        )
+                    except Exception as exc:
+                        if "ConditionalCheckFailedException" in str(exc):
+                            return _res(429, {
+                                "error": "Lucky Spin is available once every 24 hours.",
+                                "cooldown_active": True,
+                            })
+                        print("Lucky spin update warning:", repr(exc))
 
             return _res(200, {
                 "won_xp": chosen_xp,
