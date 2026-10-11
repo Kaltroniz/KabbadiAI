@@ -363,22 +363,40 @@ function Home() {
             {!result ? (
               <>
                 {/* ── SUBTITLE ── */}
-                <div className="flex items-start gap-3 mb-5 animate-fade-up" style={{ animationDelay: "0.1s" }}>
-                  <p className="text-lg leading-snug font-medium flex-1" style={{ color: "var(--text-muted)" }}>
+                <div className="flex items-start gap-2.5 mb-4 animate-fade-up" style={{ animationDelay: "0.1s" }}>
+                  <p className="text-sm sm:text-base leading-snug font-medium flex-1" style={{ color: "var(--text-muted)" }}>
                     {t("subtitle")}
                   </p>
                   <button
                     onClick={() => speak(t("subtitle"))}
                     aria-label={t("listen")}
                     id="listen-subtitle-btn"
-                    className="btn btn-ghost !min-h-0 !w-12 !h-12 !rounded-full !p-0 flex items-center justify-center text-xl shrink-0"
+                    className="btn btn-ghost !min-h-0 !w-9 !h-9 !rounded-full !p-0 flex items-center justify-center text-sm shrink-0"
                   >
                     🔊
                   </button>
                 </div>
 
-                {/* ── STEP CARDS ── */}
-                <div className="grid grid-cols-3 gap-3 mb-6 stagger-children">
+                {/* ── MOBILE STEP JOURNEY STRIP ── */}
+                <div className="md:hidden flex items-center justify-between p-1.5 mb-4 rounded-2xl bg-white/[0.04] border border-white/[0.08] backdrop-blur-xl">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-emerald-500/12 border border-emerald-400/25 flex-1 min-w-0">
+                    <span className="text-xs">📷</span>
+                    <span className="text-[11px] font-bold text-emerald-300 truncate font-outfit">1. {t("step1")}</span>
+                  </div>
+                  <span className="text-muted/40 text-[10px] px-1 shrink-0">➔</span>
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-white/5 border border-white/5 flex-1 min-w-0">
+                    <span className="text-xs">⚖️</span>
+                    <span className="text-[11px] font-bold text-white/80 truncate font-outfit">2. {t("stepWeight")}</span>
+                  </div>
+                  <span className="text-muted/40 text-[10px] px-1 shrink-0">➔</span>
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-white/5 border border-white/5 flex-1 min-w-0">
+                    <span className="text-xs">✨</span>
+                    <span className="text-[11px] font-bold text-white/80 truncate font-outfit">3. {t("step3")}</span>
+                  </div>
+                </div>
+
+                {/* ── DESKTOP STEP CARDS ── */}
+                <div className="hidden md:grid md:grid-cols-3 gap-3 mb-6 stagger-children">
                   {[["📷", "step1"], ["⚖️", "stepWeight"], ["✨", "step3"]].map(([icon, k]) => (
                     <div key={k} className="step-card">
                       <span className="step-icon">{icon}</span>
@@ -400,14 +418,14 @@ function Home() {
                 {/* ── WEIGHT INPUT ── */}
                 <div className="animate-fade-up" style={{ animationDelay: "0.25s" }}>
                   <label
-                    className="block mt-6 mb-2 text-base font-semibold"
+                    className="block mt-4 sm:mt-6 mb-1.5 text-sm sm:text-base font-semibold"
                     style={{ color: "var(--text-muted)" }}
                     htmlFor="weight"
                   >
                     ⚖️ {t("enterOffer")}
                   </label>
-                  <div className="card !p-4 flex items-center gap-3">
-                    <span className="text-3xl font-black" style={{ color: "var(--emerald-glow)" }}>⚖️</span>
+                  <div className="card !p-3 sm:!p-4 flex items-center gap-3">
+                    <span className="text-2xl sm:text-3xl font-black" style={{ color: "var(--emerald-glow)" }}>⚖️</span>
                     <input
                       id="weight"
                       inputMode="decimal"
@@ -415,12 +433,12 @@ function Home() {
                       value={weightKg}
                       placeholder="0.0"
                       onChange={(e) => setWeightKg(e.target.value.replace(/[^0-9.]/g, ""))}
-                      className="glass-input !border-0 !bg-transparent !p-0 text-3xl font-black"
+                      className="glass-input !border-0 !bg-transparent !p-0 text-2xl sm:text-3xl font-black"
                       style={{ color: "var(--text-primary)" }}
                     />
-                    <span className="text-lg font-bold" style={{ color: "var(--text-muted)" }}>kg</span>
+                    <span className="text-base sm:text-lg font-bold" style={{ color: "var(--text-muted)" }}>kg</span>
                   </div>
-                  <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+                  <p className="text-[11px] sm:text-xs mt-1.5" style={{ color: "var(--text-muted)" }}>
                     {t("weightHint")}
                   </p>
                 </div>

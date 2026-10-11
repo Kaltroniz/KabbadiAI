@@ -351,12 +351,12 @@ export default function AppNavbar({
               <img src="/icon-192.png" alt="KabadiAI" className="w-full h-full object-contain rounded-lg" />
             </div>
             <div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <span className="text-base font-black gradient-text leading-none font-outfit">
                   {t("title")}
                 </span>
                 {!isOnline && (
-                  <span className="pill !text-[9px] !px-1 !py-0.2 bg-amber-500/15 border-amber-500/35 text-amber-300">
+                  <span className="pill !text-[9px] !px-1.5 !py-0.2 bg-amber-500/15 border-amber-500/35 text-amber-300">
                     Offline
                   </span>
                 )}
@@ -366,12 +366,12 @@ export default function AppNavbar({
           </Link>
 
           {/* Right Actions: Compact Player Pill, Audio button, User icon */}
-          <div className="flex items-center gap-1.5 max-[400px]:gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 max-[380px]:gap-1 shrink-0">
             {/* Offline Queue Badge Button */}
             {queueCount > 0 && onOpenQueue && (
               <button
                 onClick={onOpenQueue}
-                className="btn btn-gold !min-h-0 !h-8 px-2 text-[11px] font-bold flex items-center gap-1 rounded-xl"
+                className="btn btn-gold !min-h-0 !h-7.5 px-2 text-[10.5px] font-bold flex items-center gap-1 rounded-xl shrink-0"
                 title="View offline queue"
               >
                 <span>📦</span>
@@ -379,19 +379,19 @@ export default function AppNavbar({
               </button>
             )}
 
-            {/* Compact Player Pill: shortened / hidden on small phone screens */}
+            {/* Compact Player Pill */}
             <Link
               href="/profile"
-              className="phone-compact-pill flex items-center gap-1.5 max-[400px]:gap-1 px-2.5 py-1.5 max-[400px]:px-2 max-[400px]:py-1 rounded-xl no-underline text-inherit shrink-0 transition-all max-[330px]:hidden"
+              className="phone-compact-pill flex items-center gap-1 px-2 py-1 rounded-xl no-underline text-inherit shrink-0 transition-all"
               style={{
-                background: "rgba(0, 229, 160, 0.12)",
+                background: "linear-gradient(135deg, rgba(0,229,160,0.14), rgba(16,185,129,0.06))",
                 border: "1px solid rgba(0, 229, 160, 0.3)",
               }}
               title={`Level ${level.level}: ${level.name} · ${streak}d streak · Click to view profile`}
             >
               <span className="text-xs shrink-0 select-none">{level.badge}</span>
-              <span className="phone-lvl-text phone-hide-lvl max-[360px]:hidden text-[11px] font-black text-emerald-300 font-outfit shrink-0">L{level.level}</span>
-              <span className="phone-hide-streak max-[400px]:hidden text-[11px] font-bold text-amber-300 font-outfit shrink-0">🔥{streak}d</span>
+              <span className="text-[10.5px] font-black text-emerald-300 font-outfit shrink-0">L{level.level}</span>
+              <span className="max-[400px]:hidden text-[10.5px] font-bold text-amber-300 font-outfit shrink-0">🔥{streak}d</span>
             </Link>
 
             {/* Voice Help button */}
@@ -399,10 +399,10 @@ export default function AppNavbar({
               onClick={() => speak(t("help"))}
               aria-label="Listen to voice guide"
               id="mobile-help-btn"
-              className="w-8 h-8 max-[400px]:w-7 max-[400px]:h-7 rounded-xl flex items-center justify-center text-sm max-[400px]:text-xs transition-all shrink-0 cursor-pointer"
+              className="w-7.5 h-7.5 rounded-xl flex items-center justify-center text-xs transition-all shrink-0 cursor-pointer"
               style={{
                 background: "rgba(0, 229, 160, 0.08)",
-                border: "1.5px solid rgba(0, 229, 160, 0.28)",
+                border: "1.2px solid rgba(0, 229, 160, 0.28)",
                 color: "#00e5a0",
               }}
               title="Listen to voice instructions"
@@ -412,14 +412,14 @@ export default function AppNavbar({
 
             {/* Mobile User Dropdown Anchor */}
             {user ? (
-              <div className="relative z-50" ref={mobileMenuRef}>
+              <div className="relative z-50 shrink-0" ref={mobileMenuRef}>
                 <button
                   type="button"
                   id="mobile-user-profile-btn"
                   onClick={() => setShowUserMenu(!showUserMenu)}
                   aria-expanded={showUserMenu}
                   aria-label="Open Account Menu"
-                  className="w-8 h-8 max-[400px]:w-7 max-[400px]:h-7 rounded-xl overflow-hidden flex items-center justify-center bg-emerald-950/70 border border-emerald-400/50 text-emerald-300 text-xs font-black shrink-0 cursor-pointer p-0"
+                  className="w-7.5 h-7.5 rounded-xl overflow-hidden flex items-center justify-center bg-emerald-950/80 border border-emerald-400/50 text-emerald-300 text-xs font-black shrink-0 cursor-pointer p-0"
                 >
                   {user.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -436,7 +436,7 @@ export default function AppNavbar({
               <Link
                 href="/auth/"
                 id="mobile-sign-in-btn"
-                className="px-2.5 py-1.5 max-[400px]:px-2 max-[400px]:py-1 rounded-xl text-xs max-[400px]:text-[11px] font-bold text-emerald-300 no-underline whitespace-nowrap shrink-0"
+                className="px-2.5 py-1 rounded-xl text-[11px] font-bold text-emerald-300 no-underline whitespace-nowrap shrink-0"
                 style={{
                   background: "rgba(0, 229, 160, 0.12)",
                   border: "1px solid rgba(0, 229, 160, 0.3)",
@@ -448,50 +448,17 @@ export default function AppNavbar({
           </div>
         </div>
 
-        {/* ─── MOBILE QUICK NAV RIBBON (MAP, PICKUPS, INSIGHTS & MORE) ─── */}
+        {/* ─── MOBILE QUICK NAV TRACK (Pill Segmented Controller) ─── */}
         <nav
-          className="flex items-center gap-1.5 overflow-x-auto pt-2.5 pb-0.5 mt-2 border-t border-white/10 scrollbar-hide w-full"
+          className="flex items-center gap-1 overflow-x-auto p-1 mt-2.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] scrollbar-hide w-full"
           aria-label="Mobile Quick Navigation"
         >
           <Link
-            href="/map"
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
-              pathname === "/map"
-                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
-                : "bg-white/5 text-muted hover:text-white border border-white/10"
-            }`}
-          >
-            <span>🗺️</span>
-            <span>Map</span>
-          </Link>
-          <Link
-            href="/insights"
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
-              pathname === "/insights"
-                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
-                : "bg-white/5 text-muted hover:text-white border border-white/10"
-            }`}
-          >
-            <span>📊</span>
-            <span>Insights</span>
-          </Link>
-          <Link
-            href="/leaderboard"
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
-              pathname === "/leaderboard"
-                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
-                : "bg-white/5 text-muted hover:text-white border border-white/10"
-            }`}
-          >
-            <span>🏆</span>
-            <span>Ranks</span>
-          </Link>
-          <Link
             href="/quests"
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold no-underline shrink-0 transition-all ${
               pathname === "/quests"
-                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
-                : "bg-white/5 text-muted hover:text-white border border-white/10"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 shadow-[0_0_10px_rgba(0,229,160,0.3)]"
+                : "text-muted hover:text-white"
             }`}
           >
             <span>📜</span>
@@ -499,14 +466,47 @@ export default function AppNavbar({
           </Link>
           <Link
             href="/cards"
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold no-underline shrink-0 transition-all ${
               pathname === "/cards"
-                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
-                : "bg-white/5 text-muted hover:text-white border border-white/10"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 shadow-[0_0_10px_rgba(0,229,160,0.3)]"
+                : "text-muted hover:text-white"
             }`}
           >
             <span>🃏</span>
             <span>Cards</span>
+          </Link>
+          <Link
+            href="/map"
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold no-underline shrink-0 transition-all ${
+              pathname === "/map"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 shadow-[0_0_10px_rgba(0,229,160,0.3)]"
+                : "text-muted hover:text-white"
+            }`}
+          >
+            <span>🗺️</span>
+            <span>Map</span>
+          </Link>
+          <Link
+            href="/insights"
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold no-underline shrink-0 transition-all ${
+              pathname === "/insights"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 shadow-[0_0_10px_rgba(0,229,160,0.3)]"
+                : "text-muted hover:text-white"
+            }`}
+          >
+            <span>📊</span>
+            <span>Insights</span>
+          </Link>
+          <Link
+            href="/leaderboard"
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold no-underline shrink-0 transition-all ${
+              pathname === "/leaderboard"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 shadow-[0_0_10px_rgba(0,229,160,0.3)]"
+                : "text-muted hover:text-white"
+            }`}
+          >
+            <span>🏆</span>
+            <span>Ranks</span>
           </Link>
         </nav>
       </div>

@@ -52,13 +52,14 @@ export default function MobileBottomNav() {
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around px-2 py-2 border-t"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around px-3 pt-2 rounded-t-3xl border-t"
       style={{
-        background: "rgba(5, 14, 10, 0.94)",
-        backdropFilter: "blur(24px)",
-        WebkitBackdropFilter: "blur(24px)",
-        borderColor: "rgba(0, 229, 160, 0.2)",
-        boxShadow: "0 -8px 30px rgba(0, 0, 0, 0.6), 0 -1px 0 rgba(255, 255, 255, 0.05)",
+        background: "rgba(6, 16, 12, 0.95)",
+        backdropFilter: "blur(28px)",
+        WebkitBackdropFilter: "blur(28px)",
+        borderColor: "rgba(0, 229, 160, 0.22)",
+        boxShadow: "0 -10px 35px rgba(0, 0, 0, 0.65), 0 -1px 0 rgba(0, 229, 160, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
+        paddingBottom: "max(10px, env(safe-area-inset-bottom, 10px))",
       }}
       aria-label="Mobile Navigation"
     >
@@ -70,7 +71,7 @@ export default function MobileBottomNav() {
             <Link
               key={item.href}
               href={item.href}
-              className="flex flex-col items-center justify-center -mt-5 relative no-underline group"
+              className="flex flex-col items-center justify-center -mt-6 relative no-underline group"
               title="Camera Scanner"
             >
               <div
@@ -78,17 +79,17 @@ export default function MobileBottomNav() {
                 style={{
                   width: 52,
                   height: 52,
-                  background: "linear-gradient(135deg, #00e5a0, #047857)",
+                  background: "linear-gradient(135deg, #00e5a0 0%, #10b981 50%, #047857 100%)",
                   boxShadow: isActive
-                    ? "0 0 25px rgba(0, 229, 160, 0.6), 0 4px 14px rgba(0, 0, 0, 0.5)"
-                    : "0 0 16px rgba(0, 229, 160, 0.35), 0 4px 10px rgba(0, 0, 0, 0.4)",
-                  border: "2.5px solid #050e0a",
+                    ? "0 0 28px rgba(0, 229, 160, 0.7), 0 4px 16px rgba(0, 0, 0, 0.6)"
+                    : "0 0 16px rgba(0, 229, 160, 0.4), 0 4px 12px rgba(0, 0, 0, 0.5)",
+                  border: "2.5px solid #06100c",
                 }}
               >
                 <span>📷</span>
               </div>
               <span
-                className={`text-[10px] font-black tracking-wide mt-1 font-outfit ${
+                className={`text-[10.5px] font-black tracking-wide mt-1 font-outfit ${
                   isActive ? "text-emerald-300" : "text-muted"
                 }`}
               >
@@ -102,17 +103,17 @@ export default function MobileBottomNav() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all duration-200 no-underline relative ${
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all duration-200 no-underline relative ${
               isActive
-                ? "text-emerald-300"
-                : "text-muted hover:text-white"
+                ? "text-emerald-300 bg-emerald-500/12 border border-emerald-400/25 shadow-[0_0_12px_rgba(0,229,160,0.18)]"
+                : "text-muted hover:text-white border border-transparent"
             }`}
           >
-            <div className="relative">
+            <div className="relative flex items-center justify-center">
               <span className="text-xl select-none leading-none">{item.icon}</span>
               {item.badge && (
                 <span
-                  className="absolute -top-1.5 -right-2.5 text-[9px] font-black px-1 py-0.2 rounded-full leading-tight font-mono"
+                  className="absolute -top-1.5 -right-3 text-[8.5px] font-black px-1 py-0.2 rounded-full leading-tight font-mono whitespace-nowrap"
                   style={{
                     background: "rgba(0, 229, 160, 0.25)",
                     border: "1px solid rgba(0, 229, 160, 0.5)",
@@ -124,17 +125,12 @@ export default function MobileBottomNav() {
               )}
             </div>
             <span
-              className={`text-[10px] font-bold tracking-tight mt-1 font-outfit ${
-                isActive ? "text-emerald-300" : "text-muted"
+              className={`text-[10px] font-bold tracking-tight mt-0.5 font-outfit ${
+                isActive ? "text-emerald-300 font-black" : "text-muted"
               }`}
             >
               {item.label}
             </span>
-            {isActive && (
-              <span
-                className="w-1 h-1 rounded-full bg-emerald-400 absolute bottom-0 shadow-[0_0_6px_#00e5a0]"
-              />
-            )}
           </Link>
         );
       })}

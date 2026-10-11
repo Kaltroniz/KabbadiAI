@@ -29,8 +29,14 @@
 
 html {
   font-family: 'Inter', 'Outfit', system-ui, sans-serif;
-  font-size: 18px;
+  font-size: 16px;
   scroll-behavior: smooth;
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 15px;
+  }
 }
 
 body {
@@ -181,18 +187,23 @@ input  { font-family: inherit; }
 
   /* Language chip */
   .lang-chip {
-    @apply shrink-0 px-5 rounded-full text-base font-bold border;
-    min-height: 42px;
+    @apply shrink-0 px-4 sm:px-5 rounded-full text-xs sm:text-sm font-bold border;
+    min-height: 34px;
     display: flex;
     align-items: center;
     transition: all 0.2s cubic-bezier(.34,1.56,.64,1);
     backdrop-filter: blur(8px);
   }
+  @media (min-width: 640px) {
+    .lang-chip {
+      min-height: 40px;
+    }
+  }
   .lang-chip-active {
     background: linear-gradient(135deg, #00e5a0 0%, #10b981 100%);
     border-color: transparent;
     color: #040f09;
-    box-shadow: 0 0 20px rgba(0,229,160,0.4);
+    box-shadow: 0 0 16px rgba(0,229,160,0.45);
   }
   .lang-chip-inactive {
     background: rgba(255,255,255,0.06);
@@ -423,7 +434,7 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; font-weight: 800; }
 @media (max-width: 768px) {
   .page-wrapper {
     max-width: 520px;
-    padding: 0.75rem 0.75rem 6.5rem;
+    padding: 0.65rem 0.85rem calc(5.5rem + env(safe-area-inset-bottom, 16px));
   }
 }
 
