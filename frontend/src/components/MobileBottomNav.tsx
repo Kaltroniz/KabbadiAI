@@ -6,13 +6,27 @@ import { useGamification } from "@/contexts/GamificationContext";
 
 export default function MobileBottomNav() {
   const pathname = usePathname();
-  const { unlockedCards, streak } = useGamification();
+  const { streak } = useGamification();
 
   if (pathname && (pathname.startsWith("/auth") || pathname.startsWith("/login"))) {
     return null;
   }
 
   const navItems = [
+    {
+      href: "/map",
+      label: "Map",
+      icon: "🗺️",
+      isPrimary: false,
+      badge: null,
+    },
+    {
+      href: "/pickups",
+      label: "Pickups",
+      icon: "🚛",
+      isPrimary: false,
+      badge: null,
+    },
     {
       href: "/",
       label: "Scan",
@@ -21,25 +35,11 @@ export default function MobileBottomNav() {
       badge: null,
     },
     {
-      href: "/leaderboard",
-      label: "Ranks",
-      icon: "🏆",
+      href: "/insights",
+      label: "Insights",
+      icon: "📊",
       isPrimary: false,
       badge: null,
-    },
-    {
-      href: "/quests",
-      label: "Quests",
-      icon: "📜",
-      isPrimary: false,
-      badge: null,
-    },
-    {
-      href: "/cards",
-      label: "Cards",
-      icon: "🃏",
-      isPrimary: false,
-      badge: `${unlockedCards.length}`,
     },
     {
       href: "/profile",
@@ -102,7 +102,7 @@ export default function MobileBottomNav() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all duration-200 no-underline relative ${
+            className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all duration-200 no-underline relative ${
               isActive
                 ? "text-emerald-300"
                 : "text-muted hover:text-white"

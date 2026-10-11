@@ -21,11 +21,15 @@ export default function AppNavbar({
   const { level, streak } = useGamification();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
+  const desktopMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent | TouchEvent) {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedDesktop = desktopMenuRef.current && desktopMenuRef.current.contains(target);
+      const clickedMobile = mobileMenuRef.current && mobileMenuRef.current.contains(target);
+      if (!clickedDesktop && !clickedMobile) {
         setShowUserMenu(false);
       }
     }
@@ -41,23 +45,150 @@ export default function AppNavbar({
 
   const desktopNavLinks = [
     { href: "/", label: "Scanner", icon: "📸" },
+    { href: "/map", label: "Map", icon: "🗺️" },
+    { href: "/pickups", label: "Pickups", icon: "🚛" },
+    { href: "/insights", label: "Insights", icon: "📊" },
     { href: "/leaderboard", label: "Ranks", icon: "🏆" },
     { href: "/quests", label: "Quests", icon: "📜" },
     { href: "/cards", label: "Cards", icon: "🃏" },
-    { href: "/map", label: "Map", icon: "🗺️" },
-    { href: "/insights", label: "Insights", icon: "📊" },
-    { href: "/pickups", label: "Pickups", icon: "🚛" },
   ];
+
+  // Shared dropdown menu content
+  const renderAccountDropdown = (alignClass: string = "right-0") => (
+    <div
+      className={`absolute ${alignClass} top-full mt-2 w-72 max-w-[calc(100vw-24px)] rounded-2xl p-3.5 animate-scale-pop shadow-2xl z-[100]`}
+      style={{
+        background: "rgba(8, 20, 14, 0.98)",
+        border: "1.5px solid rgba(0,229,160,0.38)",
+        backdropFilter: "blur(28px)",
+        WebkitBackdropFilter: "blur(28px)",
+        boxShadow: "0 14px 44px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 229, 160, 0.15)",
+      }}
+    >
+      {/* User Header */}
+      <div className="pb-3 mb-2.5 border-b border-white/10 flex items-center gap-2.5">
+        <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-emerald-950/80 text-emerald-300 font-black text-sm border border-emerald-400/50 shrink-0">
+          {user?.avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.avatar} alt={user.name || "User"} className="w-full h-full object-cover" />
+          ) : (
+            (user?.name || user?.email || "?")[0].toUpperCase()
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-black text-white truncate font-outfit">{user?.name || "Eco Warrior"}</p>
+            <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950 px-1.5 py-0.2 rounded border border-emerald-500/30 shrink-0">
+              Lvl {level.level}
+            </span>
+          </div>
+          <p className="text-[11px] text-muted truncate">{user?.email}</p>
+        </div>
+      </div>
+
+      {/* Core Navigation Links */}
+      <div className="flex flex-col gap-1 text-xs font-bold">
+        <Link
+          href="/map"
+          onClick={() => setShowUserMenu(false)}
+          className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
+        >
+          <span className="text-sm">🗺️</span> Hotspot Map & 262 Centers
+        </Link>
+        <Link
+          href="/pickups"
+          onClick={() => setShowUserMenu(false)}
+          className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
+        >
+          <span className="text-sm">🚛</span> Bulk Pickup Alerts
+        </Link>
+        <Link
+          href="/insights"
+          onClick={() => setShowUserMenu(false)}
+          className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
+        >
+          <span className="text-sm">📊</span> Waste Ledger Insights
+        </Link>
+
+        <div className="my-1 border-t border-white/10" />
+
+        <Link
+          href="/profile"
+          onClick={() => setShowUserMenu(false)}
+          className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
+        >
+          <span className="text-sm">👤</span> Profile & Impact
+        </Link>
+        <Link
+          href="/leaderboard"
+          onClick={() => setShowUserMenu(false)}
+          className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
+        >
+          <span className="text-sm">🏆</span> City Leaderboard
+        </Link>
+        <Link
+          href="/quests"
+          onClick={() => setShowUserMenu(false)}
+          className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
+        >
+          <span className="text-sm">📜</span> Daily Quests
+        </Link>
+        <Link
+          href="/cards"
+          onClick={() => setShowUserMenu(false)}
+          className="px-3 py-2 rounded-xl text-white hover:bg-white/10 no-underline flex items-center gap-2.5 transition-colors"
+        >
+          <span className="text-sm">🃏</span> Cards Album
+        </Link>
+      </div>
+
+      {/* Offline Queue if available */}
+      {queueCount > 0 && onOpenQueue && (
+        <div className="pt-2 mt-2 border-t border-white/10">
+          <button
+            onClick={() => {
+              setShowUserMenu(false);
+              onOpenQueue();
+            }}
+            className="w-full py-2 px-3 text-left rounded-xl text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 flex items-center justify-between !min-h-0"
+          >
+            <span className="flex items-center gap-2">
+              <span>📦</span>
+              <span>Offline Queue</span>
+            </span>
+            <span className="bg-amber-400 text-black px-1.5 py-0.2 rounded font-black text-[10px]">
+              {queueCount}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* Sign Out Button */}
+      <div className="pt-2.5 mt-2.5 border-t border-white/10">
+        <button
+          id="logout-btn"
+          onClick={() => {
+            setShowUserMenu(false);
+            logout();
+          }}
+          className="w-full py-2.5 px-3 rounded-xl text-xs font-bold text-red-300 hover:text-red-100 bg-red-950/50 hover:bg-red-900/60 border border-red-500/40 hover:border-red-500/70 transition-all flex items-center justify-center gap-2 !min-h-0 cursor-pointer shadow-md"
+        >
+          <span>🚪</span>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <header
       className="relative z-50 mb-6 px-3 sm:px-4 py-2.5 sm:py-3 rounded-3xl w-full max-w-full box-border"
       style={{
-        background: "rgba(10, 24, 18, 0.8)",
+        background: "rgba(10, 24, 18, 0.82)",
         backdropFilter: "blur(24px)",
         WebkitBackdropFilter: "blur(24px)",
-        border: "1px solid rgba(0, 229, 160, 0.18)",
-        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4), 0 0 25px rgba(0, 229, 160, 0.08)",
+        border: "1px solid rgba(0, 229, 160, 0.22)",
+        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.45), 0 0 25px rgba(0, 229, 160, 0.08)",
       }}
     >
       {/* ─── DESKTOP NAVBAR (md and up) ─── */}
@@ -161,20 +292,20 @@ export default function AppNavbar({
 
           {/* User Profile / Modern Sign In Button */}
           {user ? (
-            <div className="relative z-50" ref={userMenuRef}>
+            <div className="relative z-50" ref={desktopMenuRef}>
               <button
                 id="user-menu-btn"
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 aria-expanded={showUserMenu}
                 aria-label="Account details and sign out"
-                className="flex items-center gap-2 p-1 pl-2 pr-3 rounded-2xl transition-all !min-h-0"
+                className="flex items-center gap-2 p-1 pl-2 pr-3 rounded-2xl transition-all !min-h-0 cursor-pointer"
                 style={{
                   background: showUserMenu ? "rgba(0,229,160,0.18)" : "rgba(255,255,255,0.06)",
                   border: `1.5px solid ${showUserMenu ? "rgba(0,229,160,0.5)" : "rgba(255,255,255,0.12)"}`,
                 }}
               >
                 <div
-                  className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-emerald-950/60 text-emerald-300 font-black text-xs border border-emerald-500/40"
+                  className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-emerald-950/60 text-emerald-300 font-black text-xs border border-emerald-500/40 shrink-0"
                 >
                   {user.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -189,54 +320,8 @@ export default function AppNavbar({
                 <span className="text-[10px] text-muted">▾</span>
               </button>
 
-              {/* Account Dropdown Menu */}
-              {showUserMenu && (
-                <div
-                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-3 animate-scale-pop shadow-2xl z-50"
-                  style={{
-                    background: "rgba(10, 22, 16, 0.98)",
-                    border: "1.5px solid rgba(0,229,160,0.35)",
-                    backdropFilter: "blur(24px)",
-                  }}
-                >
-                  <div className="pb-2.5 mb-2.5 border-b border-white/10">
-                    <p className="text-xs font-black text-white truncate font-outfit">{user.name}</p>
-                    <p className="text-[11px] text-muted truncate">{user.email}</p>
-                  </div>
-                  <div className="flex flex-col gap-1 text-xs font-bold">
-                    <Link
-                      href="/profile"
-                      onClick={() => setShowUserMenu(false)}
-                      className="px-3 py-2 rounded-xl text-white hover:bg-white/5 no-underline flex items-center gap-2"
-                    >
-                      <span>👤</span> View Profile
-                    </Link>
-                    <Link
-                      href="/leaderboard"
-                      onClick={() => setShowUserMenu(false)}
-                      className="px-3 py-2 rounded-xl text-white hover:bg-white/5 no-underline flex items-center gap-2"
-                    >
-                      <span>🏆</span> Leaderboard
-                    </Link>
-                    <Link
-                      href="/quests"
-                      onClick={() => setShowUserMenu(false)}
-                      className="px-3 py-2 rounded-xl text-white hover:bg-white/5 no-underline flex items-center gap-2"
-                    >
-                      <span>📜</span> Quests & Tasks
-                    </Link>
-                  </div>
-                  <div className="pt-2 mt-2 border-t border-white/10">
-                    <button
-                      id="logout-btn"
-                      onClick={() => { setShowUserMenu(false); logout(); }}
-                      className="w-full py-2 px-3 text-left rounded-xl text-xs font-bold text-red-300 hover:bg-red-500/10 transition-colors flex items-center gap-2 !min-h-0"
-                    >
-                      <span>🚪</span> Sign Out
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Desktop Account Dropdown Menu */}
+              {showUserMenu && renderAccountDropdown("right-0")}
             </div>
           ) : (
             <Link
@@ -257,104 +342,188 @@ export default function AppNavbar({
       </div>
 
       {/* ─── MOBILE NAVBAR (< md) ─── */}
-      <div className="flex md:hidden items-center justify-between w-full gap-2">
-        {/* Brand Logo */}
-        <Link href="/" className="app-logo shrink-0 no-underline text-inherit flex items-center gap-2">
-          <div
-            className="logo-icon overflow-hidden p-1 flex items-center justify-center shrink-0"
-            style={{ width: 34, height: 34, borderRadius: 10 }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icon-192.png" alt="KabadiAI" className="w-full h-full object-contain rounded-lg" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1">
-              <span className="text-base font-black gradient-text leading-none font-outfit">
-                {t("title")}
-              </span>
-              {!isOnline && (
-                <span className="pill !text-[9px] !px-1 !py-0.2 bg-amber-500/15 border-amber-500/35 text-amber-300">
-                  Offline
-                </span>
-              )}
-            </div>
-            <p className="text-[10px] text-muted leading-none mt-0.5">e-Waste Intelligence</p>
-          </div>
-        </Link>
-
-        {/* Right Actions: Compact Player Pill, Audio button, User icon */}
-        <div className="flex items-center gap-1.5 max-[400px]:gap-1 shrink-0">
-          {/* Offline Queue Badge Button */}
-          {queueCount > 0 && onOpenQueue && (
-            <button
-              onClick={onOpenQueue}
-              className="btn btn-gold !min-h-0 !h-8 px-2 text-[11px] font-bold flex items-center gap-1 rounded-xl"
-              title="View offline queue"
+      <div className="flex md:hidden flex-col w-full">
+        {/* Top Row: Logo, Player Pill, Voice Guide, User Menu */}
+        <div className="flex items-center justify-between w-full gap-2">
+          {/* Brand Logo */}
+          <Link href="/" className="app-logo shrink-0 no-underline text-inherit flex items-center gap-2">
+            <div
+              className="logo-icon overflow-hidden p-1 flex items-center justify-center shrink-0"
+              style={{ width: 34, height: 34, borderRadius: 10 }}
             >
-              <span>📦</span>
-              <span>({queueCount})</span>
-            </button>
-          )}
-
-          {/* Compact Player Pill: shortened / hidden on small phone screens */}
-          <Link
-            href="/profile"
-            className="phone-compact-pill flex items-center gap-1.5 max-[400px]:gap-1 px-2.5 py-1.5 max-[400px]:px-2 max-[400px]:py-1 rounded-xl no-underline text-inherit shrink-0 transition-all max-[330px]:hidden"
-            style={{
-              background: "rgba(0, 229, 160, 0.12)",
-              border: "1px solid rgba(0, 229, 160, 0.3)",
-            }}
-            title={`Level ${level.level}: ${level.name} · ${streak}d streak · Click to view profile`}
-          >
-            <span className="text-xs shrink-0 select-none">{level.badge}</span>
-            <span className="phone-lvl-text phone-hide-lvl max-[360px]:hidden text-[11px] font-black text-emerald-300 font-outfit shrink-0">L{level.level}</span>
-            <span className="phone-hide-streak max-[400px]:hidden text-[11px] font-bold text-amber-300 font-outfit shrink-0">🔥{streak}d</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icon-192.png" alt="KabadiAI" className="w-full h-full object-contain rounded-lg" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1">
+                <span className="text-base font-black gradient-text leading-none font-outfit">
+                  {t("title")}
+                </span>
+                {!isOnline && (
+                  <span className="pill !text-[9px] !px-1 !py-0.2 bg-amber-500/15 border-amber-500/35 text-amber-300">
+                    Offline
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-muted leading-none mt-0.5">e-Waste Intelligence</p>
+            </div>
           </Link>
 
-          {/* Voice Help button (Clean icon style) */}
-          <button
-            onClick={() => speak(t("help"))}
-            aria-label="Listen to voice guide"
-            id="mobile-help-btn"
-            className="w-8 h-8 max-[400px]:w-7 max-[400px]:h-7 rounded-xl flex items-center justify-center text-sm max-[400px]:text-xs transition-all shrink-0"
-            style={{
-              background: "rgba(0, 229, 160, 0.08)",
-              border: "1.5px solid rgba(0, 229, 160, 0.28)",
-              color: "#00e5a0",
-            }}
-            title="Listen to voice instructions"
-          >
-            🔊
-          </button>
+          {/* Right Actions: Compact Player Pill, Audio button, User icon */}
+          <div className="flex items-center gap-1.5 max-[400px]:gap-1 shrink-0">
+            {/* Offline Queue Badge Button */}
+            {queueCount > 0 && onOpenQueue && (
+              <button
+                onClick={onOpenQueue}
+                className="btn btn-gold !min-h-0 !h-8 px-2 text-[11px] font-bold flex items-center gap-1 rounded-xl"
+                title="View offline queue"
+              >
+                <span>📦</span>
+                <span>({queueCount})</span>
+              </button>
+            )}
 
-          {/* User Sign In / Profile */}
-          {user ? (
+            {/* Compact Player Pill: shortened / hidden on small phone screens */}
             <Link
               href="/profile"
-              id="mobile-user-profile-btn"
-              className="w-8 h-8 max-[400px]:w-7 max-[400px]:h-7 rounded-xl overflow-hidden flex items-center justify-center bg-emerald-950/60 border border-emerald-400/40 text-emerald-300 text-xs font-black no-underline shrink-0"
-            >
-              {user.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={user.avatar} alt="User" className="w-full h-full object-cover" />
-              ) : (
-                (user.name || user.email || "?")[0].toUpperCase()
-              )}
-            </Link>
-          ) : (
-            <Link
-              href="/auth/"
-              id="mobile-sign-in-btn"
-              className="px-2.5 py-1.5 max-[400px]:px-2 max-[400px]:py-1 rounded-xl text-xs max-[400px]:text-[11px] font-bold text-emerald-300 no-underline whitespace-nowrap shrink-0"
+              className="phone-compact-pill flex items-center gap-1.5 max-[400px]:gap-1 px-2.5 py-1.5 max-[400px]:px-2 max-[400px]:py-1 rounded-xl no-underline text-inherit shrink-0 transition-all max-[330px]:hidden"
               style={{
                 background: "rgba(0, 229, 160, 0.12)",
                 border: "1px solid rgba(0, 229, 160, 0.3)",
               }}
+              title={`Level ${level.level}: ${level.name} · ${streak}d streak · Click to view profile`}
             >
-              Sign In
+              <span className="text-xs shrink-0 select-none">{level.badge}</span>
+              <span className="phone-lvl-text phone-hide-lvl max-[360px]:hidden text-[11px] font-black text-emerald-300 font-outfit shrink-0">L{level.level}</span>
+              <span className="phone-hide-streak max-[400px]:hidden text-[11px] font-bold text-amber-300 font-outfit shrink-0">🔥{streak}d</span>
             </Link>
-          )}
+
+            {/* Voice Help button */}
+            <button
+              onClick={() => speak(t("help"))}
+              aria-label="Listen to voice guide"
+              id="mobile-help-btn"
+              className="w-8 h-8 max-[400px]:w-7 max-[400px]:h-7 rounded-xl flex items-center justify-center text-sm max-[400px]:text-xs transition-all shrink-0 cursor-pointer"
+              style={{
+                background: "rgba(0, 229, 160, 0.08)",
+                border: "1.5px solid rgba(0, 229, 160, 0.28)",
+                color: "#00e5a0",
+              }}
+              title="Listen to voice instructions"
+            >
+              🔊
+            </button>
+
+            {/* Mobile User Dropdown Anchor */}
+            {user ? (
+              <div className="relative z-50" ref={mobileMenuRef}>
+                <button
+                  type="button"
+                  id="mobile-user-profile-btn"
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  aria-expanded={showUserMenu}
+                  aria-label="Open Account Menu"
+                  className="w-8 h-8 max-[400px]:w-7 max-[400px]:h-7 rounded-xl overflow-hidden flex items-center justify-center bg-emerald-950/70 border border-emerald-400/50 text-emerald-300 text-xs font-black shrink-0 cursor-pointer p-0"
+                >
+                  {user.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user.avatar} alt="User" className="w-full h-full object-cover" />
+                  ) : (
+                    (user.name || user.email || "?")[0].toUpperCase()
+                  )}
+                </button>
+
+                {/* Mobile Dropdown Menu */}
+                {showUserMenu && renderAccountDropdown("right-0")}
+              </div>
+            ) : (
+              <Link
+                href="/auth/"
+                id="mobile-sign-in-btn"
+                className="px-2.5 py-1.5 max-[400px]:px-2 max-[400px]:py-1 rounded-xl text-xs max-[400px]:text-[11px] font-bold text-emerald-300 no-underline whitespace-nowrap shrink-0"
+                style={{
+                  background: "rgba(0, 229, 160, 0.12)",
+                  border: "1px solid rgba(0, 229, 160, 0.3)",
+                }}
+              >
+                Sign In
+              </Link>
+            )}
+          </div>
         </div>
+
+        {/* ─── MOBILE QUICK NAV RIBBON (MAP, PICKUPS, INSIGHTS & MORE) ─── */}
+        <nav
+          className="flex items-center gap-1.5 overflow-x-auto pt-2.5 pb-0.5 mt-2 border-t border-white/10 scrollbar-hide w-full"
+          aria-label="Mobile Quick Navigation"
+        >
+          <Link
+            href="/map"
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
+              pathname === "/map"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
+                : "bg-white/5 text-muted hover:text-white border border-white/10"
+            }`}
+          >
+            <span>🗺️</span>
+            <span>Map</span>
+          </Link>
+          <Link
+            href="/pickups"
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
+              pathname === "/pickups"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
+                : "bg-white/5 text-muted hover:text-white border border-white/10"
+            }`}
+          >
+            <span>🚛</span>
+            <span>Pickups</span>
+          </Link>
+          <Link
+            href="/insights"
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
+              pathname === "/insights"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
+                : "bg-white/5 text-muted hover:text-white border border-white/10"
+            }`}
+          >
+            <span>📊</span>
+            <span>Insights</span>
+          </Link>
+          <Link
+            href="/leaderboard"
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
+              pathname === "/leaderboard"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
+                : "bg-white/5 text-muted hover:text-white border border-white/10"
+            }`}
+          >
+            <span>🏆</span>
+            <span>Ranks</span>
+          </Link>
+          <Link
+            href="/quests"
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
+              pathname === "/quests"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
+                : "bg-white/5 text-muted hover:text-white border border-white/10"
+            }`}
+          >
+            <span>📜</span>
+            <span>Quests</span>
+          </Link>
+          <Link
+            href="/cards"
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold no-underline shrink-0 transition-all ${
+              pathname === "/cards"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-[0_0_12px_rgba(0,229,160,0.3)]"
+                : "bg-white/5 text-muted hover:text-white border border-white/10"
+            }`}
+          >
+            <span>🃏</span>
+            <span>Cards</span>
+          </Link>
+        </nav>
       </div>
     </header>
   );

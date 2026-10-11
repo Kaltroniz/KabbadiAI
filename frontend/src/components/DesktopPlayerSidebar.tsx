@@ -171,6 +171,32 @@ export default function DesktopPlayerSidebar() {
       {/* 4. Quick Nav Cards */}
       <div className="grid grid-cols-2 gap-2.5">
         <Link
+          href="/map"
+          className="p-3 rounded-2xl bg-white/5 hover:bg-emerald-500/10 border border-white/10 hover:border-emerald-500/30 transition-all flex items-center gap-2.5 no-underline group"
+        >
+          <span className="text-2xl group-hover:scale-110 transition-transform">🗺️</span>
+          <div className="flex flex-col min-w-0">
+            <span className="text-xs font-black text-white font-outfit group-hover:text-emerald-300">
+              Hotspot Map
+            </span>
+            <span className="text-[10px] text-muted truncate">262 Listed Centers</span>
+          </div>
+        </Link>
+
+        <Link
+          href="/pickups"
+          className="p-3 rounded-2xl bg-white/5 hover:bg-emerald-500/10 border border-white/10 hover:border-emerald-500/30 transition-all flex items-center gap-2.5 no-underline group"
+        >
+          <span className="text-2xl group-hover:scale-110 transition-transform">🚛</span>
+          <div className="flex flex-col min-w-0">
+            <span className="text-xs font-black text-white font-outfit group-hover:text-emerald-300">
+              Bulk Pickups
+            </span>
+            <span className="text-[10px] text-muted truncate">Active Requests</span>
+          </div>
+        </Link>
+
+        <Link
           href="/leaderboard"
           className="p-3 rounded-2xl bg-white/5 hover:bg-emerald-500/10 border border-white/10 hover:border-emerald-500/30 transition-all flex items-center gap-2.5 no-underline group"
         >

@@ -24,7 +24,7 @@ export default function ProfilePage() {
     unlockedCards,
     resetProgress,
   } = useGamification();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   return (
     <>
@@ -55,7 +55,27 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <XPNavBar />
+          <div className="flex items-center gap-2">
+            <XPNavBar />
+            {user ? (
+              <button
+                id="profile-logout-btn"
+                onClick={logout}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold text-red-300 hover:text-white bg-red-950/50 hover:bg-red-900/60 border border-red-500/40 hover:border-red-500/70 transition-all flex items-center gap-1.5 !min-h-0 cursor-pointer shadow-sm"
+                title="Sign out of your account"
+              >
+                <span>🚪</span>
+                <span>Sign Out</span>
+              </button>
+            ) : (
+              <Link
+                href="/auth/"
+                className="px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-500/30 hover:border-emerald-400 no-underline"
+              >
+                Sign In
+              </Link>
+            )}
+          </div>
         </header>
 
         {/* User Status Card */}
@@ -86,6 +106,15 @@ export default function ProfilePage() {
               <span className="text-xs font-bold text-emerald-400 bg-emerald-950/60 px-2.5 py-0.5 rounded-xl border border-emerald-500/30">
                 {level.name}
               </span>
+              {user && (
+                <button
+                  onClick={logout}
+                  className="text-[11px] font-bold text-red-300 hover:text-red-100 bg-red-950/50 hover:bg-red-900/60 px-2.5 py-0.5 rounded-lg border border-red-500/30 hover:border-red-500/60 transition-all flex items-center gap-1 !min-h-0 cursor-pointer"
+                  title="Sign out of your account"
+                >
+                  <span>🚪</span> Sign Out
+                </button>
+              )}
             </div>
             <p className="text-xs text-muted mt-0.5 mb-3">
               {user?.email || "Guest Eco Warrior"} · {level.hindiName}
