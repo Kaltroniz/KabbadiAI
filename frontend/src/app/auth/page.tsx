@@ -195,7 +195,17 @@ function AuthForm() {
     }
   };
 
-  if (!mounted || authLoading) return null;
+  if (!mounted || authLoading) {
+    return (
+      <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "relative", width: 44, height: 44 }}>
+          <div className="orbit-dot" />
+          <div className="orbit-dot" />
+          <div className="orbit-dot" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

@@ -1,7 +1,6 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useState } from "react";
-import AuthGuard from "@/components/AuthGuard";
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
@@ -203,5 +202,4 @@ function PickupsPage() {
   );
 }
 
-const ProtectedPickups = () => <AuthGuard><PickupsPage /></AuthGuard>;
-export { ProtectedPickups as default };
+export default PickupsPage;

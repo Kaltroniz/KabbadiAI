@@ -2,7 +2,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import AuthGuard from "@/components/AuthGuard";
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
@@ -256,5 +255,4 @@ function MapPage() {
   );
 }
 
-const ProtectedMap = () => <AuthGuard><MapPage /></AuthGuard>;
-export { ProtectedMap as default };
+export default MapPage;

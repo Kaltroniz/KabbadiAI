@@ -41,9 +41,9 @@ for _ in range(60):
     status = job_info["job"]["summary"]["status"]
     print(f"  Current status: {status}")
     if status == "SUCCEED":
-        print("\n🎉 Deployment SUCCEEDED!")
+        print("\nDeployment SUCCEEDED!")
         print(f"Live URL: https://{BRANCH}.{APP_ID}.amplifyapp.com")
         break
     elif status in ("FAILED", "CANCELLED"):
-        print(f"\n❌ Deployment {status}")
+        print(f"\nDeployment {status}")
         break

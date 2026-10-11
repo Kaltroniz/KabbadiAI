@@ -79,11 +79,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (payload.exp * 1000 < Date.now()) { logout(); setLoading(false); return; }
     } catch { logout(); setLoading(false); return; }
 
-    fetch(`${API}/auth/me`, { headers: { Authorization: `Bearer ${stored}` } })
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3000);
+
+    fetch(`${API}/auth/me`, {
+      headers: { Authorization: `Bearer ${stored}` },
+      signal: ctrl.signal,
+    })
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(d => persist(stored, d.user))
       .catch(logout)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        clearTimeout(timer);
+        setLoading(false);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

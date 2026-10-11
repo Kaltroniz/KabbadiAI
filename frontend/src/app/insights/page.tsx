@@ -1,7 +1,6 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from "react";
-import AuthGuard from "@/components/AuthGuard";
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 const ASKS = [
@@ -237,5 +236,4 @@ function Insights() {
   );
 }
 
-const ProtectedInsights = () => <AuthGuard><Insights /></AuthGuard>;
-export { ProtectedInsights as default };
+export default Insights;

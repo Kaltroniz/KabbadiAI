@@ -5,7 +5,6 @@ import CameraCapture from "@/components/CameraCapture";
 import ResultDisplay from "@/components/ResultDisplay";
 import { useLanguage, LANGS } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import AuthGuard from "@/components/AuthGuard";
 import { get, set } from "idb-keyval";
 
 export interface QueuedScan {
@@ -355,7 +354,7 @@ function Home() {
               </button>
             )}
             <a
-              href="/map"
+              href="/map/"
               id="map-link"
               className="btn btn-ghost !min-h-0 !rounded-xl text-sm no-underline flex items-center justify-center"
               style={{ width: 34, height: 34, padding: 0 }}
@@ -364,7 +363,7 @@ function Home() {
               🗺
             </a>
             <a
-              href="/insights"
+              href="/insights/"
               id="insights-link"
               className="btn btn-ghost !min-h-0 !rounded-xl px-2.5 text-xs !w-auto flex items-center gap-1 no-underline"
               style={{ height: 34 }}
@@ -390,257 +389,275 @@ function Home() {
               ?
             </button>
             {/* User Profile & Account Menu */}
-            <div className="relative z-50" ref={userMenuRef}>
-              <button
-                id="user-menu-btn"
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                aria-expanded={showUserMenu}
-                aria-label="Account details and sign out"
-                title={`Signed in as ${user?.name ?? user?.email}`}
-                className="transition-all duration-200"
-                style={{
-                  background: showUserMenu ? "rgba(0,229,160,0.14)" : "rgba(255,255,255,0.06)",
-                  border: `1.5px solid ${showUserMenu ? "rgba(0,229,160,0.55)" : "rgba(255,255,255,0.12)"}`,
-                  borderRadius: "50%",
-                  width: 36,
-                  height: 36,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  position: "relative",
-                  padding: 0,
-                  boxShadow: showUserMenu ? "0 0 16px rgba(0,229,160,0.22)" : "none",
-                }}
-              >
-                <div style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: "50%",
-                  overflow: "hidden",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "rgba(255,255,255,0.05)",
-                }}>
-                  {user?.avatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  ) : (
-                    <span style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
-                      {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
-                    </span>
-                  )}
-                </div>
-                {/* Active indicator dot */}
-                <span style={{
-                  position: "absolute",
-                  bottom: 0,
-                  right: 0,
-                  width: 9,
-                  height: 9,
-                  borderRadius: "50%",
-                  background: "#00e5a0",
-                  border: "1.5px solid #0f1717",
-                  boxShadow: "0 0 5px #00e5a0",
-                }} />
-              </button>
-
-              {/* Profile Dropdown Popover */}
-              {showUserMenu && (
-                <>
-                  {/* Backdrop overlay catching outside taps and establishing clear depth */}
-                  <div
-                    style={{
-                      position: "fixed",
-                      inset: 0,
-                      zIndex: 999,
-                      background: "rgba(0, 0, 0, 0.35)",
-                      backdropFilter: "blur(2px)",
-                      WebkitBackdropFilter: "blur(2px)",
-                    }}
-                    onClick={() => setShowUserMenu(false)}
-                    aria-hidden="true"
-                  />
-                  <div
-                    className="animate-scale-pop"
-                    style={{
-                      position: "absolute",
-                      top: "calc(100% + 10px)",
-                      right: 0,
-                      width: 290,
-                      maxWidth: "calc(100vw - 32px)",
-                      background: "rgba(14, 21, 23, 0.98)",
-                      backdropFilter: "blur(24px)",
-                      WebkitBackdropFilter: "blur(24px)",
-                      border: "1.5px solid rgba(0, 229, 160, 0.35)",
-                      borderRadius: 22,
-                      padding: "16px",
-                      boxShadow: "0 24px 60px rgba(0, 0, 0, 0.9), 0 0 40px rgba(0, 229, 160, 0.18)",
-                      zIndex: 1000,
-                      transformOrigin: "top right",
-                    }}
-                  >
-                  {/* Profile Header */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 12 }}>
-                    <div style={{
-                      width: 46,
-                      height: 46,
-                      borderRadius: "50%",
-                      overflow: "hidden",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1.5px solid rgba(0,229,160,0.4)",
-                      boxShadow: "0 0 12px rgba(0,229,160,0.2)",
-                      flexShrink: 0,
-                    }}>
-                      {user?.avatar ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      ) : (
-                        <span style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
-                          {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {user?.name || "KabadiAI User"}
-                      </div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {user?.email || "Google Account"}
-                      </div>
-                      <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: "0.68rem", fontWeight: 600, color: "#34d399", background: "rgba(16,185,129,0.12)", padding: "2px 8px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.25)" }}>
-                        <span style={{ fontSize: "8px" }}>●</span>
-                        <span>Google Account</span>
-                      </div>
-                    </div>
+            {user ? (
+              <div className="relative z-50" ref={userMenuRef}>
+                <button
+                  id="user-menu-btn"
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  aria-expanded={showUserMenu}
+                  aria-label="Account details and sign out"
+                  title={`Signed in as ${user.name || user.email}`}
+                  className="transition-all duration-200"
+                  style={{
+                    background: showUserMenu ? "rgba(0,229,160,0.14)" : "rgba(255,255,255,0.06)",
+                    border: `1.5px solid ${showUserMenu ? "rgba(0,229,160,0.55)" : "rgba(255,255,255,0.12)"}`,
+                    borderRadius: "50%",
+                    width: 36,
+                    height: 36,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    position: "relative",
+                    padding: 0,
+                    boxShadow: showUserMenu ? "0 0 16px rgba(0,229,160,0.22)" : "none",
+                  }}
+                >
+                  <div style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(255,255,255,0.05)",
+                  }}>
+                    {user?.avatar ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <span style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
+                        {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
+                      </span>
+                    )}
                   </div>
+                  {/* Active indicator dot */}
+                  <span style={{
+                    position: "absolute",
+                    bottom: 0,
+                    right: 0,
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: "#00e5a0",
+                    border: "1.5px solid #0f1717",
+                    boxShadow: "0 0 5px #00e5a0",
+                  }} />
+                </button>
 
-                  {/* Divider */}
-                  <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "0 -4px 10px" }} />
-
-                  {/* Quick links */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
-                    <a
-                      href="/insights"
-                      onClick={() => setShowUserMenu(false)}
+                {/* Profile Dropdown Popover */}
+                {showUserMenu && (
+                  <>
+                    {/* Backdrop overlay catching outside taps and establishing clear depth */}
+                    <div
                       style={{
+                        position: "fixed",
+                        inset: 0,
+                        zIndex: 999,
+                        background: "rgba(0, 0, 0, 0.35)",
+                        backdropFilter: "blur(2px)",
+                        WebkitBackdropFilter: "blur(2px)",
+                      }}
+                      onClick={() => setShowUserMenu(false)}
+                      aria-hidden="true"
+                    />
+                    <div
+                      className="animate-scale-pop"
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 10px)",
+                        right: 0,
+                        width: 290,
+                        maxWidth: "calc(100vw - 32px)",
+                        background: "rgba(14, 21, 23, 0.98)",
+                        backdropFilter: "blur(24px)",
+                        WebkitBackdropFilter: "blur(24px)",
+                        border: "1.5px solid rgba(0, 229, 160, 0.35)",
+                        borderRadius: 22,
+                        padding: "16px",
+                        boxShadow: "0 24px 60px rgba(0, 0, 0, 0.9), 0 0 40px rgba(0, 229, 160, 0.18)",
+                        zIndex: 1000,
+                        transformOrigin: "top right",
+                      }}
+                    >
+                    {/* Profile Header */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 12 }}>
+                      <div style={{
+                        width: 46,
+                        height: 46,
+                        borderRadius: "50%",
+                        overflow: "hidden",
                         display: "flex",
                         alignItems: "center",
-                        gap: 10,
-                        padding: "8px 12px",
-                        borderRadius: 12,
-                        fontSize: "0.85rem",
-                        fontWeight: 600,
-                        color: "var(--text-primary)",
-                        textDecoration: "none",
-                        transition: "background 0.15s",
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                    >
-                      <span>📊</span>
-                      <span>Insights & Intelligence</span>
-                    </a>
-                    <a
-                      href="/map"
-                      onClick={() => setShowUserMenu(false)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "8px 12px",
-                        borderRadius: 12,
-                        fontSize: "0.85rem",
-                        fontWeight: 600,
-                        color: "var(--text-primary)",
-                        textDecoration: "none",
-                        transition: "background 0.15s",
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                    >
-                      <span>🗺️</span>
-                      <span>Hotspot Map</span>
-                    </a>
-                    {queueCount > 0 && (
-                      <button
-                        onClick={() => { setShowUserMenu(false); refreshQueue(); setShowQueueModal(true); }}
+                        justifyContent: "center",
+                        background: "rgba(255,255,255,0.06)",
+                        border: "1.5px solid rgba(0,229,160,0.4)",
+                        boxShadow: "0 0 12px rgba(0,229,160,0.2)",
+                        flexShrink: 0,
+                      }}>
+                        {user?.avatar ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        ) : (
+                          <span style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
+                            {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {user?.name || "KabadiAI User"}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {user?.email || "Google Account"}
+                        </div>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: "0.68rem", fontWeight: 600, color: "#34d399", background: "rgba(16,185,129,0.12)", padding: "2px 8px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.25)" }}>
+                          <span style={{ fontSize: "8px" }}>●</span>
+                          <span>Account Active</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Divider */}
+                    <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "0 -4px 10px" }} />
+
+                    {/* Quick links */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+                      <a
+                        href="/insights/"
+                        onClick={() => setShowUserMenu(false)}
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "space-between",
-                          width: "100%",
-                          textAlign: "left",
                           gap: 10,
                           padding: "8px 12px",
                           borderRadius: 12,
                           fontSize: "0.85rem",
                           fontWeight: 600,
-                          color: "#fbbf24",
-                          background: "rgba(251,191,36,0.08)",
-                          border: "1px solid rgba(251,191,36,0.2)",
-                          cursor: "pointer",
+                          color: "var(--text-primary)",
+                          textDecoration: "none",
+                          transition: "background 0.15s",
                         }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                       >
-                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span>📦</span>
-                          <span>Offline Queue</span>
-                        </span>
-                        <span style={{ fontSize: "0.75rem", background: "rgba(251,191,36,0.2)", padding: "1px 6px", borderRadius: 8 }}>
-                          {queueCount}
-                        </span>
-                      </button>
-                    )}
+                        <span>📊</span>
+                        <span>Insights & Intelligence</span>
+                      </a>
+                      <a
+                        href="/map/"
+                        onClick={() => setShowUserMenu(false)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "8px 12px",
+                          borderRadius: 12,
+                          fontSize: "0.85rem",
+                          fontWeight: 600,
+                          color: "var(--text-primary)",
+                          textDecoration: "none",
+                          transition: "background 0.15s",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <span>🗺️</span>
+                        <span>Hotspot Map</span>
+                      </a>
+                      {queueCount > 0 && (
+                        <button
+                          onClick={() => { setShowUserMenu(false); refreshQueue(); setShowQueueModal(true); }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            width: "100%",
+                            textAlign: "left",
+                            gap: 10,
+                            padding: "8px 12px",
+                            borderRadius: 12,
+                            fontSize: "0.85rem",
+                            fontWeight: 600,
+                            color: "#fbbf24",
+                            background: "rgba(251,191,36,0.08)",
+                            border: "1px solid rgba(251,191,36,0.2)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span>📦</span>
+                            <span>Offline Queue</span>
+                          </span>
+                          <span style={{ fontSize: "0.75rem", background: "rgba(251,191,36,0.2)", padding: "1px 6px", borderRadius: 8 }}>
+                            {queueCount}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Divider */}
+                    <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "0 -4px 12px" }} />
+
+                    {/* Explicit Sign Out Action Button */}
+                    <button
+                      id="logout-btn"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        logout();
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                        width: "100%",
+                        padding: "10px 16px",
+                        borderRadius: 14,
+                        background: "rgba(239, 68, 68, 0.12)",
+                        border: "1.5px solid rgba(239, 68, 68, 0.35)",
+                        color: "#fca5a5",
+                        fontWeight: 700,
+                        fontSize: "0.88rem",
+                        cursor: "pointer",
+                        transition: "all 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(239, 68, 68, 0.22)";
+                        e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.55)";
+                        e.currentTarget.style.color = "#ffffff";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(239, 68, 68, 0.12)";
+                        e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.35)";
+                        e.currentTarget.style.color = "#fca5a5";
+                      }}
+                    >
+                      <span>🚪</span>
+                      <span>Sign Out</span>
+                    </button>
                   </div>
-
-                  {/* Divider */}
-                  <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "0 -4px 12px" }} />
-
-                  {/* Explicit Sign Out Action Button */}
-                  <button
-                    id="logout-btn"
-                    onClick={() => {
-                      setShowUserMenu(false);
-                      logout();
-                    }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      width: "100%",
-                      padding: "10px 16px",
-                      borderRadius: 14,
-                      background: "rgba(239, 68, 68, 0.12)",
-                      border: "1.5px solid rgba(239, 68, 68, 0.35)",
-                      color: "#fca5a5",
-                      fontWeight: 700,
-                      fontSize: "0.88rem",
-                      cursor: "pointer",
-                      transition: "all 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "rgba(239, 68, 68, 0.22)";
-                      e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.55)";
-                      e.currentTarget.style.color = "#ffffff";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "rgba(239, 68, 68, 0.12)";
-                      e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.35)";
-                      e.currentTarget.style.color = "#fca5a5";
-                    }}
-                  >
-                    <span>🚪</span>
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-                </>
-              )}
-            </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <a
+                href="/auth/"
+                id="sign-in-btn"
+                className="btn btn-ghost !min-h-0 !rounded-xl px-2.5 text-xs font-semibold !w-auto flex items-center gap-1.5 no-underline"
+                style={{
+                  height: 34,
+                  border: "1.5px solid rgba(0,229,160,0.35)",
+                  color: "#00e5a0",
+                  background: "rgba(0,229,160,0.08)",
+                }}
+                title="Sign in or register"
+              >
+                <span>👤</span>
+                <span>Sign In</span>
+              </a>
+            )}
           </div>
         </header>
 
@@ -936,6 +953,4 @@ function Home() {
   );
 }
 
-/* Wrap with AuthGuard — unauthenticated users are redirected to /auth */
-const ProtectedHome = () => <AuthGuard><Home /></AuthGuard>;
-export { ProtectedHome as default };
+export default Home;
