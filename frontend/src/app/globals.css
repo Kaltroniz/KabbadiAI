@@ -414,9 +414,58 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; font-weight: 800; }
   position: relative;
   z-index: 1;
   min-height: 100dvh;
-  max-width: 480px;
+  width: 100%;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 1rem 1rem 5rem;
+  padding: 1.25rem 1.5rem 5rem;
+}
+
+@media (max-width: 768px) {
+  .page-wrapper {
+    max-width: 520px;
+    padding: 0.75rem 0.75rem 6.5rem;
+  }
+}
+
+/* ============================================================
+   PHONE MODE UNDER 400PX STYLING
+   ============================================================ */
+@media (max-width: 440px) {
+  .phone-hide-streak {
+    display: none !important;
+  }
+}
+
+@media (max-width: 400px) {
+  .phone-compact-pill {
+    padding: 0.2rem 0.45rem !important;
+    gap: 0.25rem !important;
+    font-size: 11px !important;
+  }
+  .phone-hide-streak {
+    display: none !important;
+  }
+  .phone-lvl-text {
+    font-size: 10.5px !important;
+    letter-spacing: -0.02em;
+  }
+}
+
+@media (max-width: 360px) {
+  .phone-hide-lvl {
+    display: none !important;
+  }
+  .phone-compact-pill {
+    padding: 0.25rem 0.35rem !important;
+    min-width: 28px !important;
+    justify-content: center !important;
+  }
+}
+
+@media (max-width: 330px) {
+  .phone-compact-pill {
+    display: none !important;
+  }
 }
 
 /* ============================================================
@@ -425,17 +474,8 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; font-weight: 800; }
 .app-header {
   position: relative;
   z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  width: 100%;
   margin-bottom: 1.5rem;
-  padding: 0.85rem 1rem;
-  background: rgba(255,255,255,0.04);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 20px;
-  box-shadow: 0 0 40px rgba(0,229,160,0.08), 0 4px 16px rgba(0,0,0,0.3);
 }
 .app-logo {
   display: flex;

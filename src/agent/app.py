@@ -246,13 +246,48 @@ def _recyclers():
     CTX["collection_points"] = points_out[:4]
     return {"recyclers_found": len(CTX["recyclers"]), "collection_points_found": len(CTX["collection_points"])}
 
+def _calc_impact(items):
+    co2, energy, tot_wt = 0.0, 0.0, 0
+    impact_factors = {
+        "motherboard": (6.0, 8.0), "ram_stick": (5.0, 7.0), "mobile_pcb": (7.0, 9.0),
+        "copper_wire": (3.5, 4.5), "copper_scrap": (4.0, 5.0), "aluminium_heatsink": (8.0, 11.0),
+        "charger_adapter": (2.0, 3.0), "hard_drive": (4.0, 6.0), "power_supply": (3.0, 4.0),
+        "printer": (2.5, 3.5), "crt_monitor_or_tv": (7.0, 10.0), "lcd_led_monitor_or_tv": (5.0, 7.5),
+        "router_or_modem": (3.0, 4.0), "remote": (1.5, 2.0), "laptop": (5.0, 7.0),
+        "desktop_cpu": (4.5, 6.5), "mobile_phone": (4.0, 6.0), "lead_acid_battery": (8.0, 12.0),
+        "li_ion_battery": (6.0, 9.0), "alkaline_battery": (2.0, 3.0), "cfl_or_tube_light": (1.5, 2.0),
+        "ups_unit": (5.0, 7.0), "split_ac": (18.0, 25.0), "window_ac": (15.0, 20.0),
+        "refrigerator": (15.0, 20.0), "washing_machine": (10.0, 14.0), "microwave": (4.0, 6.0),
+        "other": (2.0, 3.0),
+    }
+    for it in items:
+        c = it.get("component", "other")
+        wt = it.get("est_weight_g", 0) or 0
+        tot_wt += wt
+        if wt <= 0:
+            defaults = {"laptop": 2200, "desktop_cpu": 6500, "mobile_phone": 180, "crt_monitor_or_tv": 12000,
+                        "lcd_led_monitor_or_tv": 4500, "motherboard": 350, "ram_stick": 30, "power_supply": 1200,
+                        "refrigerator": 45000, "split_ac": 35000, "washing_machine": 30000}
+            wt = defaults.get(c, 200) * it.get("count", 1)
+        fac = impact_factors.get(c, (2.0, 3.0))
+        kg = wt / 1000.0
+        co2 += kg * fac[0]
+        energy += kg * fac[1]
+    return {
+        "co2_offset_kg": round(co2, 2),
+        "energy_saved_kwh": round(energy, 2),
+        "trees_equivalent": round(co2 / 20.0, 2),
+        "total_weight_kg": round(tot_wt / 1000.0, 2)
+    }
+
 def _finish():
     lo, hi = CTX["totals"]
     res = {"type": "result", "scan": CTX["scan"], "line_items": CTX["line_items"], "total_min_inr": lo,
            "total_max_inr": hi, "hazard_messages": CTX["hazards"], "recyclers": CTX["recyclers"],
            "collection_points": CTX.get("collection_points", []),
            "general_warning": GENERAL.get(CTX["lang"], GENERAL["en"]), "disclaimer": DISCLAIMER, "provider": CTX.get("provider"), "unpriced_items": CTX.get("unpriced", 0),
-           "user_weight_provided": CTX.get("user_weight_g") is not None}
+           "user_weight_provided": CTX.get("user_weight_g") is not None,
+           "environmental_impact": _calc_impact(CTX["line_items"])}
     CTX["result"] = res
     return "Result assembled."
 

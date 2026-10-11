@@ -3,6 +3,8 @@ import "./globals.css";
 import "leaflet/dist/leaflet.css";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { GamificationProvider } from "@/contexts/GamificationContext";
+import MobileBottomNav from "@/components/MobileBottomNav";
 
 export const metadata: Metadata = {
   title: "KabadiAI – e-Waste Intelligence",
@@ -38,7 +40,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <LanguageProvider>
           <AuthProvider>
-            {children}
+            <GamificationProvider>
+              {children}
+              <MobileBottomNav />
+            </GamificationProvider>
           </AuthProvider>
         </LanguageProvider>
       </body>

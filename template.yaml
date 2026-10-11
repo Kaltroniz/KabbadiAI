@@ -305,6 +305,56 @@ Resources:
             Path: /auth/me
             Method: GET
 
+  # ── Feature: Gamification Engine (XP, Streaks, Badges, Impact, Quests, Leaderboard) ──
+  GamificationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/gamification/
+      Handler: app.handler
+      Timeout: 15
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:Scan
+              Resource: !GetAtt UsersTable.Arn
+      Events:
+        GamificationReward:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /gamification/scan-reward
+            Method: POST
+        GamificationProfile:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /gamification/profile
+            Method: GET
+        GamificationLeaderboard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /gamification/leaderboard
+            Method: GET
+        GamificationLuckySpin:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /gamification/lucky-spin
+            Method: POST
+        GamificationProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /gamification/{proxy+}
+            Method: ANY
+
 Outputs:
   ApiUrl:
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com

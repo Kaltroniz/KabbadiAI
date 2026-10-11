@@ -92,6 +92,22 @@ Over **90% of India's e-waste** is handled through informal scrap supply chains 
 * Pure standard-library HMAC-SHA256 (HS256) JWT generation and verification.
 * Full Google OAuth 2.0 Identity verification.
 
+### 12. 🏆 Circular Gamification & Green Impact Engine
+* **10-Tier Leveling & Bilingual Progression:** Progress from *Kabaadi Novice* (कबाड़ी नौसिखिया) 🌱 to *Prakriti Rakshak* (प्रकृति रक्षक) 👑 with animated level-up celebrations and persistent rank perks.
+* **Deterministic Environmental Math:** Automatically translates scanned e-waste weights into real ecological milestones:
+  * ☁️ **CO₂ Avoided:** Computed via item-specific LCA carbon emission factors (e.g., 6.0 kg CO₂/kg for motherboards, 8.0 kg CO₂/kg for aluminium heatsinks).
+  * ⚡ **Clean Energy Conserved:** Tracks megawatt-hours diverted from raw ore smelting.
+  * 🌳 **Equivalent Trees Planted:** Standardized EPA benchmark ($20\text{ kg CO}_2 = 1\text{ mature tree-year}$).
+* **🃏 28 Collectible E-Waste Cards:** Complete deck across 4 rarity tiers (Common, Rare, Epic, Legendary). Each card provides recycling market trivia, hazardous elements, and safe extraction guidelines.
+* **🎖️ 30 Circular Badges:** Milestones recognizing environmental impact, safety compliance, community pickups, and daily consistency.
+* **🔥 Dynamic Streaks & Freeze Tokens:** Daily scan streak tracking with active multipliers (up to 2.5x XP). Missed days automatically consume *Streak Freeze* tokens to safeguard streaks without penalty.
+* **🎰 Daily Lucky Spin Wheel:** 1 free spin every 24 hours rewarding 50 to 500 bonus XP and streak protections.
+* **🥇 City & National Green Leaderboards:** Live rankings across Delhi-NCR, Mumbai, Bengaluru, and All-India with 1-click WhatsApp community challenge cards.
+
+### 13. 📱 Adaptive Dual-Layout UX (Desktop & Mobile)
+* **Desktop Mode (>= 768px):** Clean 2-column workspace featuring a sticky `DesktopPlayerSidebar` with live XP progress, streak multiplier, 1-click daily quest claims, and ecological impact gauges. Top navigation shows compact icons on intermediate widths and expands to full labels on wide screens (`>= 1280px`).
+* **Mobile Mode (< 768px):** Fixed glassmorphism bottom navigation (`MobileBottomNav`) with [Scan], [Ranks], [Quests], [Cards], and [Profile]. Header automatically adapts on small screens (< 400px) by hiding redundant flame streaks and compacting action buttons to guarantee zero overflow or line-wrapping.
+
 ---
 
 ## 🏗️ System Architecture
@@ -103,6 +119,8 @@ flowchart TD
         PWA["Offline IndexedDB Queue (idb-keyval)"]
         TTS["Bilingual Voice Narration (Web Speech API)"]
         LEAF["Leaflet Hotspot Map & Recycler Locator"]
+        GAME_CTX["GamificationContext (XP, Streaks, Confetti)"]
+        SIDEBAR["Desktop Sidebar & Mobile Glass Bottom Nav"]
     end
 
     subgraph AWS["AWS Cloud Infrastructure (us-east-1)"]
@@ -110,6 +128,7 @@ flowchart TD
         
         subgraph Lambdas["Python 3.13 Lambda Functions"]
             AGENT["Agent Lambda (/agent)\nDeterministic Pipeline + Strands Tooling"]
+            GAMIFICATION["Gamification Lambda (/gamification/*)\nXP, Streaks, Cards, Leaderboard, Spin"]
             ANALYST["Analyst Lambda (/analyst)\nGemini Tool-Calling Analytics"]
             STATS["Hotspots Lambda (/hotspots)\nSpatial 1km Grid Clustering"]
             PICKUP["Pickup Lambda (/pickup)\nBulk Requests with 7-Day TTL"]
@@ -122,7 +141,7 @@ flowchart TD
             DDB_R["RecyclersTable\n(CPCB + Drop-Off Directory)"]
             DDB_L["LotsTable\n(Anonymous 30-Day TTL Ledger)"]
             DDB_PK["PickupsTable\n(7-Day TTL Bulk Alert Board)"]
-            DDB_U["UsersTable\n(Hashed Credentials)"]
+            DDB_U["UsersTable\n(Profiles, XP, Streaks & Cards)"]
         end
     end
 
@@ -133,7 +152,9 @@ flowchart TD
 
     UI -->|Photo + GPS + Weight| APIGW
     PWA -->|Auto-Sync on Reconnect| APIGW
+    GAME_CTX -->|Scan Rewards & Leaderboard| APIGW
     APIGW --> AGENT
+    APIGW --> GAMIFICATION
     APIGW --> ANALYST
     APIGW --> STATS
     APIGW --> PICKUP
@@ -146,6 +167,7 @@ flowchart TD
     AGENT -->|Geospatial Radius Query| DDB_R
     AGENT -->|Anonymous Scan Record| DDB_L
 
+    GAMIFICATION -->|Player Profile & Rankings| DDB_U
     ANALYST -->|Database Tools| DDB_L
     ANALYST -->|Tool-Calling Loop| GEMINI
     STATS --> DDB_L
@@ -207,14 +229,15 @@ In compliance with hackathon evaluation standards, we maintain strict transparen
 * **Styling:** Vanilla CSS design tokens + Tailwind CSS v3.4 (Dark glassmorphism aesthetic, Outfit & Inter typography)
 * **Maps & Geospatial:** Leaflet 1.9 & React-Leaflet
 * **Offline Persistence:** `idb-keyval` (IndexedDB lightweight wrapper)
+* **Gamification & Celebrations:** `canvas-confetti` + Custom `GamificationContext`
 * **Voice Synthesis:** HTML5 Web Speech API
 * **Auth Client:** `@react-oauth/google` + Custom JWT storage
 
 ### Backend & Cloud Infrastructure
 * **Deployment Tool:** AWS Serverless Application Model (SAM CLI)
 * **Runtime:** Python 3.13 on AWS Lambda
-* **API Layer:** AWS API Gateway (HTTP API v2) with CORS and route-level throttling
-* **Database:** Amazon DynamoDB (5 on-demand tables with TTL lifecycle policies)
+* **API Layer:** AWS API Gateway (HTTP API v2) with CORS, route-level throttling, and IAM policies
+* **Database:** Amazon DynamoDB (5 on-demand tables with TTL lifecycle policies: `PricesTable`, `RecyclersTable`, `LotsTable`, `PickupsTable`, `UsersTable`)
 * **AI Orchestration:** Native Python `urllib` & AWS Boto3 SDK (zero heavy dependencies for ultra-fast cold starts)
 * **Hosting:** AWS Amplify Hosting (Continuous Deployment via Git)
 
@@ -222,14 +245,21 @@ In compliance with hackathon evaluation standards, we maintain strict transparen
 
 ## 🧪 Testing & Accuracy Verification
 
-The project includes unit test suites covering the valuation engine, weight redistribution math, boundary checks, and recycler geospatial algorithms:
+The project includes an automated test suite (**16/16 unit and integration tests passing**) covering the valuation engine, weight redistribution math, environmental impact formulas, streak algorithms, and recycler geospatial queries:
 
 ```bash
 # Run pytest suite
-pytest tests -v
+python3 -m pytest tests/ -v
 ```
 
 ### Test Coverage Highlights:
+* `test_level_progression`: Validates XP thresholds across all 10 tiers from Novice (0 XP) to Prakriti Rakshak (80,000+ XP).
+* `test_streak_calculation_consecutive`: Verifies daily streak counter increments and multiplier scaling up to 2.5x.
+* `test_streak_freeze_token_usage`: Validates that missed days consume Streak Freeze tokens without resetting player streaks.
+* `test_environmental_impact_math`: Verifies deterministic LCA formulas for CO₂ offset, energy saved, and tree equivalents.
+* `test_leaderboard_user_placement`: Confirms real-time user placement on city/national boards based on XP and diverted kg.
+* `test_badges_and_cards_integrity`: Validates integrity of all 30 badges, 28 circular collectible cards, and story quests.
+* `test_lambda_handler_scan_reward`: End-to-end integration test of `/gamification/scan-reward` payload generation.
 * `test_user_weight_scaling_proportional`: Validates that visual weights are scaled accurately when a user supplies an exact scale weight.
 * `test_user_weight_scaling_zero_total_fallback`: Proves that when visual weights total 0, user weight divides evenly across items rather than collapsing prices to ₹0.
 * `test_user_weight_validation_bounds`: Enforces input boundaries between 1g and 2,000,000g (2 tons).
@@ -241,7 +271,7 @@ pytest tests -v
 ## 🚀 Local Development Guide
 
 ### 1. Prerequisites
-* Python 3.13+
+* Python 3.9+ or 3.13
 * Node.js 18+ and `npm`
 * AWS CLI and AWS SAM CLI configured with active credentials
 
@@ -254,8 +284,8 @@ cd KabbadiAI
 # Install test and development dependencies
 pip install pytest boto3
 
-# Run tests
-pytest tests
+# Run tests (16 passing tests)
+python3 -m pytest tests/ -v
 
 # Build SAM application
 sam build
@@ -295,13 +325,29 @@ KabbadiAI/
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── auth/         # Login, Register & Google OAuth routes
+│   │   │   ├── cards/        # 🃏 28 Collectible E-Waste Cards Deck Screen
 │   │   │   ├── insights/     # AI Waste Analyst dashboard (Gemini tool-calling)
+│   │   │   ├── leaderboard/  # 🏆 City & National Green Leaderboards
 │   │   │   ├── map/          # Leaflet E-Waste Hotspot Map
 │   │   │   ├── pickups/      # Neighborhood Bulk Pickup Alert Board
+│   │   │   ├── profile/      # 🎖️ Recycler Profile, Badges & Impact Gauges
+│   │   │   ├── quests/       # 📜 Daily Challenges & Story Quests Screen
 │   │   │   ├── page.tsx      # Main Camera Scan, Valuation & Recycler Screen
-│   │   │   └── globals.css   # Curated dark-mode theme & glassmorphic styling
-│   │   ├── components/       # CameraCapture, ResultDisplay, HotspotMap, AuthGuard
-│   │   ├── contexts/         # LanguageContext (en/hi + TTS), AuthContext
+│   │   │   └── globals.css   # Curated dark-mode theme & responsive media queries
+│   │   ├── components/
+│   │   │   ├── AppNavbar.tsx # Responsive header (icon nav < 1280px, < 400px phone pill)
+│   │   │   ├── DesktopPlayerSidebar.tsx # Sticky desktop gamification sidebar
+│   │   │   ├── MobileBottomNav.tsx # Fixed glassmorphism mobile PWA navigation
+│   │   │   ├── gamification/ # Badges, Cards, Podium, Modals & XP Toast components
+│   │   │   ├── CameraCapture.tsx # Two-stage camera scan with preview confirmation
+│   │   │   ├── ResultDisplay.tsx # Safety warnings, pricing & WhatsApp card
+│   │   │   └── HotspotMap.tsx# Spatial Leaflet map with recycler filtering
+│   │   ├── contexts/
+│   │   │   ├── GamificationContext.tsx # XP state, streaks, confetti & unlocked cards
+│   │   │   ├── LanguageContext.tsx     # Bilingual translation & Web Speech TTS
+│   │   │   └── AuthContext.tsx         # JWT token management & Google login
+│   │   ├── data/
+│   │   │   └── gamificationData.ts     # 10 levels, 30 badges, 28 cards, quests
 │   │   └── locales/          # Bilingual translation files (en.json, hi.json)
 ├── scripts/
 │   ├── accuracy.py           # Benchmark evaluation script
@@ -312,10 +358,12 @@ KabbadiAI/
 │   ├── agent/app.py          # Vision AI + deterministic pricing/safety engine
 │   ├── analyst/app.py        # Gemini function-calling multi-turn ledger analyst
 │   ├── auth/app.py           # PBKDF2 password hashing + JWT + Google OAuth
+│   ├── gamification/app.py   # XP calculations, streaks, badges, spins & boards
 │   ├── lots/app.py           # Anonymous lot retrieval & platform stats
 │   ├── pickup/app.py         # Bulk pickup request handlers (7-day TTL)
 │   └── stats/app.py          # Spatial ~1km grid clustering for hotspot map
 ├── tests/
+│   ├── test_gamification.py  # Unit & integration tests for gamification engine
 │   ├── test_price.py         # Unit tests for pricing, weights & boundaries
 │   └── test_recyclers.py     # Unit tests for geospatial filtering & formatting
 ├── IMPLEMENTATION.md         # Comprehensive project architecture specification

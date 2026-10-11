@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useGamification } from "@/contexts/GamificationContext";
 
 const ICON: Record<string, string> = {
   motherboard: "🧩", ram_stick: "💾", mobile_pcb: "📱", li_ion_battery: "🔋", alkaline_battery: "🪫",
@@ -63,6 +64,7 @@ export default function ResultDisplay({
   remainingQueueCount?: number;
 }) {
   const { t, speak } = useLanguage();
+  const { level } = useGamification();
   const name = (c: string) => { const v = t("c_" + c); return v === "c_" + c ? c.replace(/_/g, " ") : v; };
 
   const SpeakBtn = ({ text, id }: { text: string; id: string }) => (
@@ -194,8 +196,11 @@ export default function ResultDisplay({
   const summary = `${t("indicativeValue")}: ₹${lo} ${t("to")} ₹${hi}.`;
 
   const shareText = [
-    `KabadiAI: ${summary}`,
-    ...(result.line_items || []).map((i: any) => `${name(i.component)} x${i.count}: ~${i.est_weight_g} g`),
+    `♻️ KabadiAI Verified Appraisal Card`,
+    `👤 Assessed by: ${level.name} (Level ${level.level} ${level.badge})`,
+    `💰 ${summary}`,
+    ...(result.line_items || []).map((i: any) => `• ${name(i.component)} x${i.count}: ~${i.est_weight_g} g`),
+    ...(result.environmental_impact ? [`🌱 Green Impact: ${result.environmental_impact.trees_equivalent} trees eq. saved | ${result.environmental_impact.co2_offset_kg} kg CO₂ prevented`] : []),
     ...hazardTexts.map((h: string) => "⚠ " + h),
     t("disclaimer"),
   ].join("\n");
@@ -283,6 +288,54 @@ export default function ResultDisplay({
         {result.unpriced_items > 0 && <p className="text-sm text-amber-700 mt-3">⚠ {t("excludesUnpriced")} {result.unpriced_items}</p>}
         <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>{t("priceNote")}</p>
       </div>
+
+      {/* Environmental Impact of This Lot */}
+      {result.environmental_impact && (
+        <div
+          className="card animate-fade-up"
+          style={{
+            background: "linear-gradient(145deg, rgba(16,185,129,0.12), rgba(6,30,20,0.85))",
+            border: "1.5px solid rgba(0,229,160,0.4)",
+            boxShadow: "0 0 25px rgba(0,229,160,0.15)",
+          }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🌿</span>
+              <h3 className="font-black text-sm text-white font-outfit">
+                Lot Green Impact & CO₂ Saved
+              </h3>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-300 bg-emerald-950/60 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+              Circular Economy
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center">
+              <span className="text-lg mb-0.5">🌳</span>
+              <span className="text-sm font-black text-white font-outfit">
+                {result.environmental_impact.trees_equivalent}
+              </span>
+              <span className="text-[10px] text-muted font-medium">Trees Eq./Yr</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center">
+              <span className="text-lg mb-0.5">☁️</span>
+              <span className="text-sm font-black text-white font-outfit">
+                {result.environmental_impact.co2_offset_kg} <span className="text-[10px] text-sky-400">kg</span>
+              </span>
+              <span className="text-[10px] text-muted font-medium">CO₂ Prevented</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center">
+              <span className="text-lg mb-0.5">⚡</span>
+              <span className="text-sm font-black text-white font-outfit">
+                {result.environmental_impact.energy_saved_kwh} <span className="text-[10px] text-amber-400">kWh</span>
+              </span>
+              <span className="text-[10px] text-muted font-medium">Energy Saved</span>
+            </div>
+          </div>
+        </div>
+      )}
 
 
 

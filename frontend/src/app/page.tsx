@@ -1,10 +1,18 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import CameraCapture from "@/components/CameraCapture";
 import ResultDisplay from "@/components/ResultDisplay";
+import AppNavbar from "@/components/AppNavbar";
+import DesktopPlayerSidebar from "@/components/DesktopPlayerSidebar";
 import { useLanguage, LANGS } from "@/contexts/LanguageContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { useGamification } from "@/contexts/GamificationContext";
+import FloatingXPNotification from "@/components/gamification/FloatingXPNotification";
+import BadgeUnlockModal from "@/components/gamification/BadgeUnlockModal";
+import CardUnlockModal from "@/components/gamification/CardUnlockModal";
+import LevelUpModal from "@/components/gamification/LevelUpModal";
+import LuckySpinModal from "@/components/gamification/LuckySpinModal";
+import DailyChallengesWidget from "@/components/gamification/DailyChallengesWidget";
 import { get, set } from "idb-keyval";
 
 export interface QueuedScan {
@@ -21,7 +29,7 @@ export interface QueuedScan {
 
 function Home() {
   const { lang, setLang, t, speak } = useLanguage();
-  const { user, logout } = useAuth();
+  const { recordScanReward } = useGamification();
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -35,8 +43,6 @@ function Home() {
   const [showQueueModal, setShowQueueModal] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [mounted, setMounted] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const refreshQueue = async () => {
     try {
@@ -77,22 +83,6 @@ function Home() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent | TouchEvent) {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
-        setShowUserMenu(false);
-      }
-    }
-    if (showUserMenu) {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("touchstart", handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("touchstart", handleClickOutside);
-    };
-  }, [showUserMenu]);
 
   const onPhotoCaptured = (b64: string, mime: string) => {
     setCapturedPhoto({ b64, mime });
@@ -150,7 +140,15 @@ function Home() {
         signal: ctrl.signal,
       });
       if (!res.ok) throw new Error(String(res.status));
-      setResult(await res.json());
+      const scanData = await res.json();
+      setResult(scanData);
+      if (scanData?.type === "result") {
+        recordScanReward(scanData, {
+          hasCoords: Boolean(coords),
+          userWeightProvided: Boolean(weightKg),
+          isOfflineSync: false,
+        });
+      }
     } catch (err: any) {
       if (
         !navigator.onLine ||
@@ -215,6 +213,13 @@ function Home() {
       setQueueCount(remaining.length);
 
       setResult(data);
+      if (data?.type === "result") {
+        recordScanReward(data, {
+          hasCoords: item.lat !== undefined,
+          userWeightProvided: Boolean(item.user_weight_g),
+          isOfflineSync: true,
+        });
+      }
       setShowQueueModal(false);
     } catch (err) {
       console.error("Failed to sync lot:", err);
@@ -325,496 +330,190 @@ function Home() {
       )}
 
       <div className="page-wrapper animate-fade-in">
-        {/* ── HEADER ── */}
-        <header className="app-header relative z-50">
-          <div className="app-logo shrink-0" style={{ gap: 8 }}>
-            <div className="logo-icon overflow-hidden p-1 flex items-center justify-center" style={{ width: 38, height: 38 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/icon-192.png" alt="KabadiAI" className="w-full h-full object-contain rounded-lg" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h1 className="text-lg font-black gradient-text leading-none">{t("title")}</h1>
-                {!isOnline && (
-                  <span className="pill !text-[10px] !px-1.5 !py-0.5" style={{ background: "rgba(251,191,36,0.15)", borderColor: "rgba(251,191,36,0.35)", color: "#fbbf24" }}>
-                    Offline
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-muted leading-none mt-0.5">e-Waste Intelligence</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {queueCount > 0 && (
-              <button
-                onClick={() => { refreshQueue(); setShowQueueModal(true); }}
-                id="sync-queue-btn"
-                className="btn btn-gold !min-h-0 !rounded-xl px-2.5 py-1 text-xs font-bold !w-auto flex items-center gap-1"
-                title="View offline queue"
-              >
-                <span>📦</span>
-                <span>({queueCount})</span>
-              </button>
-            )}
-            <a
-              href="/map/"
-              id="map-link"
-              className="btn btn-ghost !min-h-0 !rounded-xl text-sm no-underline flex items-center justify-center"
-              style={{ width: 34, height: 34, padding: 0 }}
-              title="Hotspot Map"
-            >
-              🗺
-            </a>
-            <a
-              href="/insights/"
-              id="insights-link"
-              className="btn btn-ghost !min-h-0 !rounded-xl px-2.5 text-xs !w-auto flex items-center gap-1 no-underline"
-              style={{ height: 34 }}
-              title="Insights"
-            >
-              📊 <span>Insights</span>
-            </a>
-            <button
-              onClick={() => speak(t("help"))}
-              aria-label="Help"
-              id="help-btn"
-              className="rounded-full flex items-center justify-center text-sm font-black !min-h-0"
-              style={{
-                width: 34,
-                height: 34,
-                background: "linear-gradient(135deg,#fcd34d,#f59e0b)",
-                boxShadow: "0 0 16px rgba(245,158,11,0.35)",
-                border: "none",
-                cursor: "pointer",
-                color: "#1a0f00",
-              }}
-            >
-              ?
-            </button>
-            {/* User Profile & Account Menu */}
-            {user ? (
-              <div className="relative z-50" ref={userMenuRef}>
+        {/* ── APP TOP NAVBAR (RESPONSIVE DESKTOP & MOBILE) ── */}
+        <AppNavbar
+          isOnline={isOnline}
+          queueCount={queueCount}
+          onOpenQueue={() => {
+            refreshQueue();
+            setShowQueueModal(true);
+          }}
+        />
+
+        {/* ── RESPONSIVE MAIN WORKSPACE (2-COLUMN ON DESKTOP, 1-COLUMN ON MOBILE) ── */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+          {/* Main Column: Scanner, Inputs & Results */}
+          <div className="md:col-span-7 lg:col-span-8 flex flex-col">
+            {/* ── LANGUAGE CHIPS (QUICK SELECTOR) ── */}
+            <div className="flex gap-2 overflow-x-auto pb-1 mb-5 scrollbar-hide stagger-children" role="radiogroup">
+              {LANGS.map((l) => (
                 <button
-                  id="user-menu-btn"
-                  onClick={() => setShowUserMenu(!showUserMenu)}
-                  aria-expanded={showUserMenu}
-                  aria-label="Account details and sign out"
-                  title={`Signed in as ${user.name || user.email}`}
-                  className="transition-all duration-200"
-                  style={{
-                    background: showUserMenu ? "rgba(0,229,160,0.14)" : "rgba(255,255,255,0.06)",
-                    border: `1.5px solid ${showUserMenu ? "rgba(0,229,160,0.55)" : "rgba(255,255,255,0.12)"}`,
-                    borderRadius: "50%",
-                    width: 36,
-                    height: 36,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    position: "relative",
-                    padding: 0,
-                    boxShadow: showUserMenu ? "0 0 16px rgba(0,229,160,0.22)" : "none",
-                  }}
+                  key={l.code}
+                  role="radio"
+                  id={`lang-${l.code}`}
+                  aria-checked={lang === l.code}
+                  onClick={() => setLang(l.code)}
+                  className={`lang-chip ${lang === l.code ? "lang-chip-active" : "lang-chip-inactive"}`}
                 >
-                  <div style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: "50%",
-                    overflow: "hidden",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "rgba(255,255,255,0.05)",
-                  }}>
-                    {user?.avatar ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    ) : (
-                      <span style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
-                        {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  {/* Active indicator dot */}
-                  <span style={{
-                    position: "absolute",
-                    bottom: 0,
-                    right: 0,
-                    width: 9,
-                    height: 9,
-                    borderRadius: "50%",
-                    background: "#00e5a0",
-                    border: "1.5px solid #0f1717",
-                    boxShadow: "0 0 5px #00e5a0",
-                  }} />
+                  {l.label}
                 </button>
-
-                {/* Profile Dropdown Popover */}
-                {showUserMenu && (
-                  <>
-                    {/* Backdrop overlay catching outside taps and establishing clear depth */}
-                    <div
-                      style={{
-                        position: "fixed",
-                        inset: 0,
-                        zIndex: 999,
-                        background: "rgba(0, 0, 0, 0.35)",
-                        backdropFilter: "blur(2px)",
-                        WebkitBackdropFilter: "blur(2px)",
-                      }}
-                      onClick={() => setShowUserMenu(false)}
-                      aria-hidden="true"
-                    />
-                    <div
-                      className="animate-scale-pop"
-                      style={{
-                        position: "absolute",
-                        top: "calc(100% + 10px)",
-                        right: 0,
-                        width: 290,
-                        maxWidth: "calc(100vw - 32px)",
-                        background: "rgba(14, 21, 23, 0.98)",
-                        backdropFilter: "blur(24px)",
-                        WebkitBackdropFilter: "blur(24px)",
-                        border: "1.5px solid rgba(0, 229, 160, 0.35)",
-                        borderRadius: 22,
-                        padding: "16px",
-                        boxShadow: "0 24px 60px rgba(0, 0, 0, 0.9), 0 0 40px rgba(0, 229, 160, 0.18)",
-                        zIndex: 1000,
-                        transformOrigin: "top right",
-                      }}
-                    >
-                    {/* Profile Header */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 12 }}>
-                      <div style={{
-                        width: 46,
-                        height: 46,
-                        borderRadius: "50%",
-                        overflow: "hidden",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "rgba(255,255,255,0.06)",
-                        border: "1.5px solid rgba(0,229,160,0.4)",
-                        boxShadow: "0 0 12px rgba(0,229,160,0.2)",
-                        flexShrink: 0,
-                      }}>
-                        {user?.avatar ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={user.avatar} alt={user.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                        ) : (
-                          <span style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--emerald-glow)", fontFamily: "Outfit,sans-serif" }}>
-                            {(user?.name ?? user?.email ?? "?")[0].toUpperCase()}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {user?.name || "KabadiAI User"}
-                        </div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {user?.email || "Google Account"}
-                        </div>
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: "0.68rem", fontWeight: 600, color: "#34d399", background: "rgba(16,185,129,0.12)", padding: "2px 8px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.25)" }}>
-                          <span style={{ fontSize: "8px" }}>●</span>
-                          <span>Account Active</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Divider */}
-                    <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "0 -4px 10px" }} />
-
-                    {/* Quick links */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
-                      <a
-                        href="/insights/"
-                        onClick={() => setShowUserMenu(false)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          padding: "8px 12px",
-                          borderRadius: 12,
-                          fontSize: "0.85rem",
-                          fontWeight: 600,
-                          color: "var(--text-primary)",
-                          textDecoration: "none",
-                          transition: "background 0.15s",
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                      >
-                        <span>📊</span>
-                        <span>Insights & Intelligence</span>
-                      </a>
-                      <a
-                        href="/map/"
-                        onClick={() => setShowUserMenu(false)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          padding: "8px 12px",
-                          borderRadius: 12,
-                          fontSize: "0.85rem",
-                          fontWeight: 600,
-                          color: "var(--text-primary)",
-                          textDecoration: "none",
-                          transition: "background 0.15s",
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                      >
-                        <span>🗺️</span>
-                        <span>Hotspot Map</span>
-                      </a>
-                      {queueCount > 0 && (
-                        <button
-                          onClick={() => { setShowUserMenu(false); refreshQueue(); setShowQueueModal(true); }}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            width: "100%",
-                            textAlign: "left",
-                            gap: 10,
-                            padding: "8px 12px",
-                            borderRadius: 12,
-                            fontSize: "0.85rem",
-                            fontWeight: 600,
-                            color: "#fbbf24",
-                            background: "rgba(251,191,36,0.08)",
-                            border: "1px solid rgba(251,191,36,0.2)",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span>📦</span>
-                            <span>Offline Queue</span>
-                          </span>
-                          <span style={{ fontSize: "0.75rem", background: "rgba(251,191,36,0.2)", padding: "1px 6px", borderRadius: 8 }}>
-                            {queueCount}
-                          </span>
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Divider */}
-                    <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "0 -4px 12px" }} />
-
-                    {/* Explicit Sign Out Action Button */}
-                    <button
-                      id="logout-btn"
-                      onClick={() => {
-                        setShowUserMenu(false);
-                        logout();
-                      }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 8,
-                        width: "100%",
-                        padding: "10px 16px",
-                        borderRadius: 14,
-                        background: "rgba(239, 68, 68, 0.12)",
-                        border: "1.5px solid rgba(239, 68, 68, 0.35)",
-                        color: "#fca5a5",
-                        fontWeight: 700,
-                        fontSize: "0.88rem",
-                        cursor: "pointer",
-                        transition: "all 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(239, 68, 68, 0.22)";
-                        e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.55)";
-                        e.currentTarget.style.color = "#ffffff";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "rgba(239, 68, 68, 0.12)";
-                        e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.35)";
-                        e.currentTarget.style.color = "#fca5a5";
-                      }}
-                    >
-                      <span>🚪</span>
-                      <span>Sign Out</span>
-                    </button>
-                  </div>
-                  </>
-                )}
-              </div>
-            ) : (
-              <a
-                href="/auth/"
-                id="sign-in-btn"
-                className="btn btn-ghost !min-h-0 !rounded-xl px-2.5 text-xs font-semibold !w-auto flex items-center gap-1.5 no-underline"
-                style={{
-                  height: 34,
-                  border: "1.5px solid rgba(0,229,160,0.35)",
-                  color: "#00e5a0",
-                  background: "rgba(0,229,160,0.08)",
-                }}
-                title="Sign in or register"
-              >
-                <span>👤</span>
-                <span>Sign In</span>
-              </a>
-            )}
-          </div>
-        </header>
-
-        {/* ── LANGUAGE CHIPS ── */}
-        <div className="flex gap-2 overflow-x-auto pb-1 mb-5 scrollbar-hide stagger-children" role="radiogroup">
-          {LANGS.map((l) => (
-            <button
-              key={l.code}
-              role="radio"
-              id={`lang-${l.code}`}
-              aria-checked={lang === l.code}
-              onClick={() => setLang(l.code)}
-              className={`lang-chip ${lang === l.code ? "lang-chip-active" : "lang-chip-inactive"}`}
-            >
-              {l.label}
-            </button>
-          ))}
-        </div>
-
-        {!result ? (
-          <>
-            {/* ── SUBTITLE ── */}
-            <div className="flex items-start gap-3 mb-5 animate-fade-up" style={{ animationDelay: "0.1s" }}>
-              <p className="text-lg leading-snug font-medium flex-1" style={{ color: "var(--text-muted)" }}>
-                {t("subtitle")}
-              </p>
-              <button
-                onClick={() => speak(t("subtitle"))}
-                aria-label={t("listen")}
-                id="listen-subtitle-btn"
-                className="btn btn-ghost !min-h-0 !w-12 !h-12 !rounded-full !p-0 flex items-center justify-center text-xl shrink-0"
-              >
-                🔊
-              </button>
-            </div>
-
-            {/* ── STEP CARDS ── */}
-            <div className="grid grid-cols-3 gap-3 mb-6 stagger-children">
-              {[["📷", "step1"], ["⚖️", "stepWeight"], ["✨", "step3"]].map(([icon, k]) => (
-                <div key={k} className="step-card">
-                  <span className="step-icon">{icon}</span>
-                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{t(k) || k}</div>
-                </div>
               ))}
             </div>
 
-            {/* ── CAMERA CAPTURE ── */}
-            <div className="animate-fade-up" style={{ animationDelay: "0.2s" }}>
-              <CameraCapture
-                onCapture={onPhotoCaptured}
-                capturedImage={capturedPhoto}
-                onClearCapture={() => setCapturedPhoto(null)}
-                isLoading={loading}
-              />
-            </div>
-
-            {/* ── WEIGHT INPUT ── */}
-            <div className="animate-fade-up" style={{ animationDelay: "0.25s" }}>
-              <label
-                className="block mt-6 mb-2 text-base font-semibold"
-                style={{ color: "var(--text-muted)" }}
-                htmlFor="weight"
-              >
-                ⚖️ {t("enterOffer")}
-              </label>
-              <div className="card !p-4 flex items-center gap-3">
-                <span className="text-3xl font-black" style={{ color: "var(--emerald-glow)" }}>⚖️</span>
-                <input
-                  id="weight"
-                  inputMode="decimal"
-                  pattern="[0-9.]*"
-                  value={weightKg}
-                  placeholder="0.0"
-                  onChange={(e) => setWeightKg(e.target.value.replace(/[^0-9.]/g, ""))}
-                  className="glass-input !border-0 !bg-transparent !p-0 text-3xl font-black"
-                  style={{ color: "var(--text-primary)" }}
-                />
-                <span className="text-lg font-bold" style={{ color: "var(--text-muted)" }}>kg</span>
-              </div>
-              <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-                {t("weightHint")}
-              </p>
-            </div>
-
-            {/* ── SUBMIT TO AI BUTTON ── */}
-            <div className="animate-fade-up mt-6" style={{ animationDelay: "0.3s" }}>
-              {submitError && (
-                <div
-                  className="mb-3 rounded-2xl px-4 py-2.5 font-semibold text-sm animate-fade-up flex items-center gap-2"
-                  style={{ background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.4)", color: "#fca5a5" }}
-                >
-                  <span>⚠️</span>
-                  <span>{submitError}</span>
+            {!result ? (
+              <>
+                {/* ── SUBTITLE ── */}
+                <div className="flex items-start gap-3 mb-5 animate-fade-up" style={{ animationDelay: "0.1s" }}>
+                  <p className="text-lg leading-snug font-medium flex-1" style={{ color: "var(--text-muted)" }}>
+                    {t("subtitle")}
+                  </p>
+                  <button
+                    onClick={() => speak(t("subtitle"))}
+                    aria-label={t("listen")}
+                    id="listen-subtitle-btn"
+                    className="btn btn-ghost !min-h-0 !w-12 !h-12 !rounded-full !p-0 flex items-center justify-center text-xl shrink-0"
+                  >
+                    🔊
+                  </button>
                 </div>
-              )}
 
-              <button
-                id="submit-ai-btn"
-                type="button"
-                onClick={submitToAi}
-                disabled={loading || !capturedPhoto}
-                className={`btn btn-primary w-full !py-4 !rounded-2xl text-base font-black flex items-center justify-center gap-2 transition-all ${
-                  loading
-                    ? "opacity-80 cursor-wait"
-                    : !capturedPhoto
-                    ? "opacity-45 !bg-white/5 !text-white/40 !border !border-white/10 cursor-not-allowed"
-                    : "hover:scale-[1.02]"
-                }`}
-                style={{
-                  minHeight: 56,
-                  boxShadow: capturedPhoto && !loading ? "0 0 35px rgba(0,229,160,0.4), 0 4px 16px rgba(0,0,0,0.4)" : "none",
-                }}
-              >
-                {loading ? (
-                  <>
-                    <div style={{ position: "relative", width: 22, height: 22 }}>
-                      <div className="orbit-dot !w-2 !h-2" />
-                      <div className="orbit-dot !w-2 !h-2" />
+                {/* ── STEP CARDS ── */}
+                <div className="grid grid-cols-3 gap-3 mb-6 stagger-children">
+                  {[["📷", "step1"], ["⚖️", "stepWeight"], ["✨", "step3"]].map(([icon, k]) => (
+                    <div key={k} className="step-card">
+                      <span className="step-icon">{icon}</span>
+                      <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{t(k) || k}</div>
                     </div>
-                    <span>{t("analyzing")}</span>
-                  </>
-                ) : (
-                  <>
-                    <span style={{ fontSize: "1.25rem" }}>✨</span>
-                    <span style={{ fontFamily: "Outfit, sans-serif", fontSize: "1.05rem" }}>
-                      {!capturedPhoto ? t("takePhotoFirst") : t("submitToAi")}
-                    </span>
-                    <span style={{ fontSize: "1.1rem" }}>🚀</span>
-                  </>
-                )}
-              </button>
+                  ))}
+                </div>
 
-              {!capturedPhoto && (
-                <p className="text-center text-xs mt-2.5" style={{ color: "var(--text-muted)" }}>
-                  {t("takePhotoHint")}
-                </p>
-              )}
-            </div>
-          </>
-        ) : (
-          <ResultDisplay
-            result={result}
-            onRetake={() => {
-              setResult(null);
-              setCapturedPhoto(null);
-              setWeightKg("");
-              setSubmitError(null);
-              refreshQueue();
-            }}
-            onSync={syncNextQueueItem}
-            remainingQueueCount={queueCount}
-          />
-        )}
+                {/* ── CAMERA CAPTURE ── */}
+                <div className="animate-fade-up" style={{ animationDelay: "0.2s" }}>
+                  <CameraCapture
+                    onCapture={onPhotoCaptured}
+                    capturedImage={capturedPhoto}
+                    onClearCapture={() => setCapturedPhoto(null)}
+                    isLoading={loading}
+                  />
+                </div>
+
+                {/* ── WEIGHT INPUT ── */}
+                <div className="animate-fade-up" style={{ animationDelay: "0.25s" }}>
+                  <label
+                    className="block mt-6 mb-2 text-base font-semibold"
+                    style={{ color: "var(--text-muted)" }}
+                    htmlFor="weight"
+                  >
+                    ⚖️ {t("enterOffer")}
+                  </label>
+                  <div className="card !p-4 flex items-center gap-3">
+                    <span className="text-3xl font-black" style={{ color: "var(--emerald-glow)" }}>⚖️</span>
+                    <input
+                      id="weight"
+                      inputMode="decimal"
+                      pattern="[0-9.]*"
+                      value={weightKg}
+                      placeholder="0.0"
+                      onChange={(e) => setWeightKg(e.target.value.replace(/[^0-9.]/g, ""))}
+                      className="glass-input !border-0 !bg-transparent !p-0 text-3xl font-black"
+                      style={{ color: "var(--text-primary)" }}
+                    />
+                    <span className="text-lg font-bold" style={{ color: "var(--text-muted)" }}>kg</span>
+                  </div>
+                  <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+                    {t("weightHint")}
+                  </p>
+                </div>
+
+                {/* ── SUBMIT TO AI BUTTON ── */}
+                <div className="animate-fade-up mt-6" style={{ animationDelay: "0.3s" }}>
+                  {submitError && (
+                    <div
+                      className="mb-3 rounded-2xl px-4 py-2.5 font-semibold text-sm animate-fade-up flex items-center gap-2"
+                      style={{ background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.4)", color: "#fca5a5" }}
+                    >
+                      <span>⚠️</span>
+                      <span>{submitError}</span>
+                    </div>
+                  )}
+
+                  <button
+                    id="submit-ai-btn"
+                    type="button"
+                    onClick={submitToAi}
+                    disabled={loading || !capturedPhoto}
+                    className={`btn btn-primary w-full !py-4 !rounded-2xl text-base font-black flex items-center justify-center gap-2 transition-all ${
+                      loading
+                        ? "opacity-80 cursor-wait"
+                        : !capturedPhoto
+                        ? "opacity-45 !bg-white/5 !text-white/40 !border !border-white/10 cursor-not-allowed"
+                        : "hover:scale-[1.02]"
+                    }`}
+                    style={{
+                      minHeight: 56,
+                      boxShadow: capturedPhoto && !loading ? "0 0 35px rgba(0,229,160,0.4), 0 4px 16px rgba(0,0,0,0.4)" : "none",
+                    }}
+                  >
+                    {loading ? (
+                      <>
+                        <div style={{ position: "relative", width: 22, height: 22 }}>
+                          <div className="orbit-dot !w-2 !h-2" />
+                          <div className="orbit-dot !w-2 !h-2" />
+                        </div>
+                        <span>{t("analyzing")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: "1.25rem" }}>✨</span>
+                        <span style={{ fontFamily: "Outfit, sans-serif", fontSize: "1.05rem" }}>
+                          {!capturedPhoto ? t("takePhotoFirst") : t("submitToAi")}
+                        </span>
+                        <span style={{ fontSize: "1.1rem" }}>🚀</span>
+                      </>
+                    )}
+                  </button>
+
+                  {!capturedPhoto && (
+                    <p className="text-center text-xs mt-2.5" style={{ color: "var(--text-muted)" }}>
+                      {t("takePhotoHint")}
+                    </p>
+                  )}
+                </div>
+
+                {/* ── MOBILE-ONLY DAILY CHALLENGES (Desktop shows in sticky sidebar) ── */}
+                <div className="mt-6 md:hidden animate-fade-up" style={{ animationDelay: "0.35s" }}>
+                  <DailyChallengesWidget />
+                </div>
+              </>
+            ) : (
+              <ResultDisplay
+                result={result}
+                onRetake={() => {
+                  setResult(null);
+                  setCapturedPhoto(null);
+                  setWeightKg("");
+                  setSubmitError(null);
+                  refreshQueue();
+                }}
+                onSync={syncNextQueueItem}
+                remainingQueueCount={queueCount}
+              />
+            )}
+          </div>
+
+          {/* Right Column: Desktop Player Sidebar (Hidden on mobile, sticky on desktop) */}
+          <div className="hidden md:block md:col-span-5 lg:col-span-4 sticky top-6">
+            <DesktopPlayerSidebar />
+          </div>
+        </div>
       </div>
+
+      {/* ── GAMIFICATION CELEBRATION MODALS ── */}
+      <FloatingXPNotification />
+      <BadgeUnlockModal />
+      <CardUnlockModal />
+      <LevelUpModal />
+      <LuckySpinModal />
 
       {/* ── OFFLINE QUEUE MODAL ── */}
       {showQueueModal && (
