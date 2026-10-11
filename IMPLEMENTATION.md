@@ -23,10 +23,9 @@ KabadiAI is a multilingual mobile web app (PWA) designed to combat e-waste. User
     * `POST /scan/upload-url`: Generates S3 presigned PUT URLs for direct client uploads (bypassing 6MB API Gateway limit).
     * `POST /scan/jobs`: Enqueues asynchronous e-waste scanning jobs into Amazon SQS for background processing.
     * `GET /scan/jobs/{id}`: Polls processing status and retrieves valuation results for asynchronous scan jobs.
-    * `POST /gamification/scan-reward`: Atomic XP award, streak update, badge unlock, card drop, with strict conditional idempotency.
+    * `POST /gamification/scan-reward`: Atomic XP award, streak update, and badge unlocks, persisted directly to DynamoDB users table with strict idempotency.
     * `GET /gamification/profile`: Player level, XP progress, streak freeze tokens, badges, and card inventory.
     * `GET /gamification/leaderboard`: GSI-accelerated Metropolitan (Delhi-NCR, Mumbai, Bengaluru) & National leaderboards.
-    * `POST /gamification/lucky-spin`: Daily free spin wheel with 24-hour DynamoDB conditional cooldown write.
     * `POST /auth/register`, `POST /auth/login`, `POST /auth/google`, `GET /auth/me`: Production auth system with PBKDF2 & JWT.
     * `GET /hotspots`: Pre-aggregated 1km spatial grid clustering from `AggregatesTable` (zero table scans).
     * `GET /stats`: Pre-computed platform totals from `AggregatesTable` with edge micro-caching.
@@ -4019,7 +4018,301 @@ The scalability architecture was validated using both the automated Python load 
 * **Unit, Integration & Chaos Tests:** **39/39 passing** (`python3 -m pytest tests/ -v`).
 * **CloudFormation / SAM Validation:** **0 errors, 0 warnings** (`cfn-lint template.yaml`).
 * **Frontend Production Build:** **15/15 static pages successfully compiled** with zero TypeScript or ESLint errors (`cd frontend && npm run build`).
-* **Branch Integrity:** Committed cleanly to the dedicated `scalability` branch on origin.
+* **Branch Integrity:** Synced cleanly with `origin/main` (commit `1db7d30`).
+* **Live Production Deployment:** Deployed to AWS Amplify at [https://main.d33iyw8b7i40jw.amplifyapp.com](https://main.d33iyw8b7i40jw.amplifyapp.com) (Job ID 13 SUCCEED).
+
+---
+
+## 12. User Authentication & Streamlined Onboarding Architecture
+
+### 12.1 Google OAuth One-Click Onboarding vs. Traditional Email/Password
+A core user experience principle of KabadiAI is removing onboarding friction for informal scrap aggregators and local citizens. The authentication subsystem supports two distinct login and account creation paths:
+
+1. **Google OAuth One-Click Authentication (`POST /auth/google`):**
+   * **Seamless Registration Flow:** When a user taps **"Continue with Google"**, Google OAuth issues a verified token. In [`src/auth/app.py`](file:///Users/souhardya/KabbadiAI/src/auth/app.py), token validation automatically determines whether an account already exists in DynamoDB `UsersTable`:
+     * If the account exists, the user's latest avatar and profile metadata are synchronized.
+     * If the user is logging in for the first time, a new user document is dynamically created and persisted on the spot:
+       ```python
+       # Automatic On-the-Fly User Provisioning in src/auth/app.py
+       user = {
+           "id": uuid.uuid4().hex,
+           "email": email.lower(),
+           "name": name,
+           "avatar": avatar,
+           "provider": "google",
+           "xp": 0,
+           "leaderboard_key": "national",
+           "city": "delhi",
+           "created_at": datetime.now(timezone.utc).isoformat(),
+       }
+       _put_user(user)
+       ```
+     * Users do *not* need to navigate to a separate registration form, pick passwords, or confirm email links. This answers why "Sign Up" works without manual registration: Google OAuth automatically registers new users upon authorization.
+2. **Traditional Email & Password (`POST /auth/register` & `POST /auth/login`):**
+   * For users without Google accounts, a secure email/password flow is provided using **PBKDF2-HMAC-SHA256** password hashing with cryptographically random salts (100,000 iterations).
+
+### 12.2 Unified UI/UX Redesign (`frontend/src/app/auth/page.tsx`)
+Previously, having tabs labeled "Sign In" vs. "Register" caused confusion because users who clicked "Continue with Google" were already automatically registered without ever touching the "Register" tab.
+
+The auth interface was redesigned with standard terminology and explicit contextual guidance:
+* **Tab Switcher:** Labeled **"Sign In"** vs **"Sign Up"** (standard nomenclature).
+* **One-Click Banner:** Added clear subtext under the Google button:
+  `⚡ One-click sign up: Google automatically creates or signs into your account (no password needed).`
+* **Contextual Divider:** Dynamically indicates the fallback method based on active tab:
+  `OR SIGN IN WITH EMAIL` vs. `OR SIGN UP WITH EMAIL`.
+
+```tsx
+// frontend/src/app/auth/page.tsx snippet
+{/* Tab switcher */}
+<div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 4, marginBottom: "1.75rem" }}>
+  {(["login", "register"] as const).map(m => (
+    <button
+      key={m}
+      type="button"
+      onClick={() => switchMode(m)}
+      style={{
+        flex: 1,
+        background: mode === m ? "linear-gradient(135deg,#00e5a0,#047857)" : "transparent",
+        borderRadius: 11,
+        color: mode === m ? "#040f09" : "var(--text-muted)",
+        fontWeight: 700,
+        padding: "10px",
+        cursor: "pointer",
+      }}
+    >
+      {m === "login" ? "Sign In" : "Sign Up"}
+    </button>
+  ))}
+</div>
+
+{/* Google OAuth with Explicit Microcopy */}
+{GOOGLE_CLIENT_ID ? (
+  <>
+    <GoogleBtn onSuccess={handleGoogle} disabled={busy} />
+    <p style={{ fontSize: "0.74rem", color: "rgba(200, 235, 220, 0.65)", textAlign: "center", marginTop: "0.6rem", marginBottom: 0, lineHeight: 1.4 }}>
+      ⚡ <strong>One-click sign up:</strong> Google automatically creates or signs into your account (no password needed).
+    </p>
+    <Divider text={mode === "login" ? "OR SIGN IN WITH EMAIL" : "OR SIGN UP WITH EMAIL"} />
+  </>
+) : null}
+```
+
+---
+
+## 13. Account-Gated Gamification & Persistent User Storage Architecture
+
+### 13.1 Architectural Separation: Guest Mode vs. Registered Account
+To maintain high data integrity, prevent spam or bot XP inflation, and ensure that circular economy rewards represent verified user contributions, the entire gamification loop (XP progression, level tier promotions, daily streak tracking, and badges) is strictly gated to registered users.
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                        KABADIAI USER GAMIFICATION LIFECYCLE                            │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+ [Anonymous Guest User]                             [Signed-In Registered User]
+          │                                                       │
+          ▼                                                       ▼
+ • Level: Untracked (L1)                                 • Level: Persistent (L1 – L10)
+ • XP: 0                                                 • XP: Synced to DynamoDB UsersTable
+ • Streak: None                                          • Streak: Evaluated with Freeze Tokens
+ • Scan Action: Full valuation & safety audit            • Scan Action: Full valuation & rewards
+ • Data Storage: Stateless                               • Data Storage: kabadiai_gamification_${email}
+          │                                                       │
+          ▼                                                       ▼
+ [Prompt Banner: "Sign in to save XP"]                   [Real-Time Server Atomic ADD Update]
+```
+
+### 13.2 Client-Side State Management (`GamificationContext.tsx`)
+The `GamificationProvider` integrates directly with `useAuth()`.
+* **Guest State:** When `user === null`, the client state initializes to zeroed metrics (`xp: 0`, `streak: 0`, `impact: zeroes`).
+* **Registered State:** When `user !== null`, state is scoped to `kabadiai_gamification_${user.email.toLowerCase()}`.
+* **Scan Rewards Gating:** In `recordScanReward()`, unauthenticated requests do not mutate XP or level tiers. Authenticated scans transmit the user's verified email (`user_id: user.email`) to the backend:
+
+```typescript
+// frontend/src/contexts/GamificationContext.tsx snippet
+export function GamificationProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const isRegisteredUser = Boolean(user && user.email);
+
+  const [xp, setXp] = useState<number>(0);
+  const [streak, setStreak] = useState<number>(0);
+  // ...
+
+  // Storage key is scoped to the logged-in user account
+  const storageKey = user?.email ? `kabadiai_gamification_${user.email.toLowerCase()}` : null;
+
+  // Rehydrate state when user signs in or mounts
+  useEffect(() => {
+    if (!storageKey) {
+      setXp(0);
+      setStreak(0);
+      setLastScanDate(null);
+      setMultiplier(1.0);
+      setFreezeTokens(0);
+      setImpact(GUEST_IMPACT);
+      setUnlockedBadges([]);
+      setUnlockedCards([]);
+      return;
+    }
+
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (typeof parsed.xp === "number") setXp(parsed.xp);
+        if (typeof parsed.streak === "number") setStreak(parsed.streak);
+        // ...
+      }
+    } catch (e) {
+      console.error("Error rehydrating user gamification state:", e);
+    }
+  }, [storageKey]);
+
+  const recordScanReward = useCallback(async (
+    scanResult: any,
+    options?: { hasCoords?: boolean; userWeightProvided?: boolean; isOfflineSync?: boolean }
+  ) => {
+    if (!scanResult || scanResult.type !== "result") return;
+
+    // Level-up, streaks, and persistent XP are only enabled for people who signed up
+    if (!isRegisteredUser || !user?.email) {
+      return;
+    }
+
+    // Transmit user_id: user.email to backend for atomic DynamoDB update
+    let serverReward: any = null;
+    try {
+      const res = await fetch(`${API}/gamification/scan-reward`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user.email,
+          items: scanResult.line_items || [],
+          hazards: (scanResult.hazard_messages || []).map((h: any) => h.hazard_code),
+          has_coords: Boolean(options?.hasCoords),
+          user_weight_provided: Boolean(options?.userWeightProvided),
+          is_offline_sync: Boolean(options?.isOfflineSync),
+          last_scan_date: lastScanDate,
+          current_streak: streak,
+          freeze_tokens: freezeTokens,
+          known_cards: unlockedCards,
+        }),
+      });
+      if (res.ok) serverReward = await res.json();
+    } catch (err) {}
+    // ...
+```
+
+### 13.3 Server-Side Atomic Persistence (`src/gamification/app.py`)
+In `src/gamification/app.py`, the backend verifies that `user_id` is a valid email (not `"guest"`). It applies an atomic DynamoDB update expression directly to the user's document in `UsersTable`:
+
+```python
+# Server-Side Atomic Persistence in src/gamification/app.py
+if USERS_TABLE and user_id and user_id != "guest" and "@" in user_id:
+    try:
+        tbl = _table(USERS_TABLE)
+        if tbl:
+            up_expr = (
+                "ADD xp :xp, kg_diverted :kg, total_scans :one "
+                "SET last_scan_date = :today, current_streak = :st, "
+                "freeze_tokens = :ft, leaderboard_key = :lk"
+            )
+            expr_vals = {
+                ":xp": total_earned_xp,
+                ":kg": Decimal(str(impact["total_weight_kg"])),
+                ":one": 1,
+                ":today": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                ":st": streak_res["streak"],
+                ":ft": streak_res["freeze_tokens"],
+                ":lk": "national",
+            }
+            expr_names = {}
+            cond_expr = None
+            if lot_id:
+                expr_names["#pid"] = f"lot_{lot_id}"
+                expr_vals[":pts"] = int(time.time())
+                up_expr += ", processed_lots.#pid = :pts"
+                cond_expr = "attribute_not_exists(processed_lots.#pid)"
+
+            kw = {
+                "Key": {"email": user_id.lower()},
+                "UpdateExpression": up_expr,
+                "ExpressionAttributeValues": expr_vals,
+                "ReturnValues": "UPDATED_NEW",
+            }
+            if expr_names: kw["ExpressionAttributeNames"] = expr_names
+            if cond_expr: kw["ConditionExpression"] = cond_expr
+
+            up_res = tbl.update_item(**kw)
+            server_xp = int(up_res.get("Attributes", {}).get("xp", total_earned_xp))
+    except Exception as e:
+        if "ConditionalCheckFailedException" in str(e):
+            already_awarded = True
+        else:
+            print("User atomic reward warning:", repr(e))
+```
+
+### 13.4 Navigation & UI Adaptations
+* **Desktop & Mobile Navbar ([`AppNavbar.tsx`](file:///Users/souhardya/KabbadiAI/frontend/src/components/AppNavbar.tsx)):** The player level pill (`Lvl {level} 🔥 {streak}d`) is hidden for unauthenticated users, rendering only a clean **Sign In** button.
+* **Mobile Bottom Nav ([`MobileBottomNav.tsx`](file:///Users/souhardya/KabbadiAI/frontend/src/components/MobileBottomNav.tsx)):** The streak badge on the Profile tab appears only when `user !== null && streak > 1`.
+* **Desktop Sidebar ([`DesktopPlayerSidebar.tsx`](file:///Users/souhardya/KabbadiAI/frontend/src/components/DesktopPlayerSidebar.tsx)):** For guests, a clean onboarding card explains the benefits of signing up to level up. For authenticated users, it displays their full XP bar, active perks, and environmental impact snapshot.
+* **Scan Results Prompt ([`ResultDisplay.tsx`](file:///Users/souhardya/KabbadiAI/frontend/src/components/ResultDisplay.tsx)):** Unauthenticated users receive an in-line encouragement card: *"Want to Level Up & Save Your XP? Sign in or sign up to save your recycling score and rank up!"*
+
+---
+
+## 14. UX Simplification & Waste Scan Workflow Optimization
+
+### 14.1 Removal of the Lucky Wheel Feature
+* **Rationale:** The Lucky Spin wheel introduced unnecessary gambling-like mechanics that distracted from the core utility of e-waste identification, fair pricing, and recycling logistics.
+* **Changes Implemented:**
+  * Completely deactivated [`LuckySpinModal.tsx`](file:///Users/souhardya/KabbadiAI/frontend/src/components/gamification/LuckySpinModal.tsx).
+  * Removed lucky spin triggers, banners, and buttons from `GamificationContext.tsx`, `DesktopPlayerSidebar.tsx`, `GamificationHubBar.tsx`, and `XPNavBar.tsx`.
+  * Removed `<LuckySpinModal />` from all page views (`/`, `/quests`, `/profile`, `/leaderboard`, `/cards`).
+
+### 14.2 Removal of the "Card Acquired" Scan Celebration Popup
+* **Rationale:** Scrap dealers and citizens scanning multiple items found the fullscreen holographic modal popup ("Card Acquired / New Item Unlocked") intrusive and disruptive during rapid batch lot appraisal.
+* **Changes Implemented:**
+  * Deactivated [`CardUnlockModal.tsx`](file:///Users/souhardya/KabbadiAI/frontend/src/components/gamification/CardUnlockModal.tsx).
+  * Removed `setCelebrationCard` trigger in `recordScanReward()`.
+  * Scanned items are still quietly indexed in the user's digital album under `/cards` so they can view their unlocked cards at their own pace without interrupting their scanning flow.
+
+---
+
+## 15. Brand Identity & Visual Asset Redesign
+
+* **Elimination of Generic Template Icons:** Replaced default Next.js/Vercel favicon templates with high-resolution custom KabadiAI application branding across all viewport targets:
+  * `frontend/public/icon-192.png` (High-res 192x192 PWA app icon)
+  * `frontend/public/icon-32.png` (32x32 desktop browser tab icon)
+  * `frontend/public/icon-16.png` (16x16 desktop browser tab icon)
+  * `frontend/public/favicon.ico` (Multi-resolution Windows/browser icon)
+  * `frontend/public/apple-touch-icon.png` (iOS home screen icon)
+* **Metadata & Manifest Integration:** Configured in `frontend/src/app/layout.tsx` and `frontend/public/manifest.json`.
+
+---
+
+## 16. Future Roadmap & Hackathon Next Steps
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              KABADIAI FUTURE ROADMAP                                   │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+ [Q4 2026: Municipal API]      [Q1 2027: Scrap Pricing]       [Q2 2027: Fleet Dispatch]
+ ─────────────────────────     ─────────────────────────      ─────────────────────────
+ • CPCB EPR Portal Sync        • Real-Time Metal Commodities  • Dynamic Pickup Routing
+ • ULB Ward Aggregations       • Copper/Gold Index Feeds      • Fleet Capacity Planning
+ • Formal Recycler Certs       • Dynamic Dealer Margins       • Carbon Credit Tokenization
+```
+
+1. **Automated Scrap Commodity Index Feed:**
+   * Integrate live commodity price feeds for copper, aluminium, and circuit board precious metals (Au/Pd content per ton) to replace weekly static price baselines with real-time dynamic market indices.
+2. **Municipal EPR Portal Integration:**
+   * Direct reporting connector for authorized recyclers to upload diversion certificates directly to CPCB/SPCB Extended Producer Responsibility (EPR) portals.
+3. **Optimized Vehicle Routing for Bulk Pickups:**
+   * Vehicle Routing Problem (VRP) algorithms to group pending community pickup alerts (`/pickups`) into optimized collection routes for local municipal collection vans.
+4. **Offline Voice-to-Intent for Non-Literate Workers:**
+   * Fully on-device WebAssembly voice recognition model for Hindi, Tamil, Telugu, and Bengali to allow kabadiwalas to interact entirely via voice commands in noisy scrap yards.
+
 
 
 
