@@ -114,13 +114,6 @@ function Insights() {
     </>
   );
 
-  const cells: any[] = s.cells || [];
-  const lats = cells.map((c) => c.lat);
-  const lons = cells.map((c) => c.lon);
-  const pos = (v: number, arr: number[], size: number) =>
-    Math.max(...arr) === Math.min(...arr)
-      ? size / 2
-      : 20 + ((v - Math.min(...arr)) / (Math.max(...arr) - Math.min(...arr))) * (size - 40);
   const mats = Object.entries(s.weight_kg_by_component || {}).sort((a: any, b: any) => b[1] - a[1]);
   const top = mats.length ? (mats[0][1] as number) : 1;
   const totalHazards = Object.values(s.hazard_counts || {}).reduce((a: any, b: any) => a + b, 0) as number;
@@ -152,7 +145,7 @@ function Insights() {
         </div>
 
         <p className="text-xs mb-5" style={{ color: "var(--text-muted)" }}>
-          Real scans only, anonymous, about 1 km cells. Weights are estimated from photos.
+          Real scans only, anonymous aggregated ledger. Weights are estimated from photos.
         </p>
 
         {/* Stats grid */}
@@ -169,49 +162,6 @@ function Insights() {
             </div>
             <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>hazard flags</div>
           </div>
-        </div>
-
-        {/* Map */}
-        <div className="card mb-4">
-          <h2 className="font-bold text-base mb-3" style={{ color: "var(--text-primary)" }}>📍 Where lots are found</h2>
-          {cells.length === 0 ? (
-            <p className="text-center py-8" style={{ color: "var(--text-muted)" }}>No located lots yet.</p>
-          ) : (
-            <svg viewBox="0 0 300 300" className="w-full rounded-xl" style={{ background: "rgba(255,255,255,0.04)" }}>
-              {/* Grid lines */}
-              {[60, 120, 180, 240].map((v) => (
-                <React.Fragment key={v}>
-                  <line x1={v} y1={0} x2={v} y2={300} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                  <line x1={0} y1={v} x2={300} y2={v} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                </React.Fragment>
-              ))}
-              {cells.map((c, i) => {
-                const cx = pos(c.lon, lons, 300);
-                const cy = 300 - pos(c.lat, lats, 300);
-                const r = 8 + 4 * c.lots;
-                const isHazard = c.hazard_lots > 0;
-                return (
-                  <g key={i}>
-                    <circle
-                      cx={cx} cy={cy} r={r * 1.8}
-                      fill={isHazard ? "rgba(220,38,38,0.15)" : "rgba(0,229,160,0.10)"}
-                    />
-                    <circle
-                      cx={cx} cy={cy} r={r}
-                      fill={isHazard ? "#dc2626" : "#00e5a0"}
-                      fillOpacity={0.8}
-                    >
-                      <animate attributeName="r" values={`${r};${r * 1.15};${r}`} dur="3s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" values="0.8;1;0.8" dur="3s" repeatCount="indefinite" />
-                    </circle>
-                  </g>
-                );
-              })}
-            </svg>
-          )}
-          <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-            🟢 Safe cells &nbsp;|&nbsp; 🔴 Hazardous cells. Schematic, not a street map.
-          </p>
         </div>
 
         {/* Materials bar chart */}
