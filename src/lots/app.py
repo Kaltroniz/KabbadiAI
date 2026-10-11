@@ -6,12 +6,54 @@ from decimal import Decimal
 import boto3
 
 TABLE = os.environ.get("LOTS_TABLE", "")
+AGGREGATES_TABLE = os.environ.get("AGGREGATES_TABLE", "")
 _t = None
+
+def _get_precomputed_stats():
+    tbl_name = AGGREGATES_TABLE or os.environ.get("AGGREGATES_TABLE", "")
+    if not tbl_name:
+        return None
+    try:
+        from boto3.dynamodb.conditions import Key
+        agg_tbl = boto3.resource("dynamodb").Table(tbl_name)
+        sum_res = agg_tbl.get_item(Key={"id": "summary#all"})
+        sum_item = sum_res.get("Item")
+        if not sum_item:
+            return None
+        
+        cell_res = agg_tbl.query(
+            IndexName="TypeIndex",
+            KeyConditionExpression=Key("aggregate_type").eq("cell")
+        )
+        cells = []
+        for c in cell_res.get("Items", []):
+            cells.append({
+                "lat": float(c["lat"]),
+                "lon": float(c["lon"]),
+                "lots": int(c.get("lot_count", 0)),
+                "hazard_lots": int(c.get("hazard_count", 0)),
+                "value_min": float(c.get("value_min_inr", 0)),
+                "value_max": float(c.get("value_max_inr", 0)),
+            })
+        
+        return {
+            "lots": int(sum_item.get("total_lots", 0)),
+            "weight_kg_by_component": sum_item.get("weight_kg_by_component", {}),
+            "hazard_counts": sum_item.get("hazard_counts", {}),
+            "cells": cells,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        print("Precomputed stats fetch failed:", repr(exc))
+        return None
 
 def _all():
     global _t
     _t = _t or boto3.resource("dynamodb").Table(TABLE)
-    items, kw = [], {}
+    items, kw = [], {
+        "ProjectionExpression": "#i, #st, mock, items, hazards, cell_lat, cell_lon, total_min_inr, total_max_inr",
+        "ExpressionAttributeNames": {"#i": "id", "#st": "status"}
+    }
     while True:
         r = _t.scan(**kw)
         items += r.get("Items", [])
@@ -40,7 +82,44 @@ def compute_stats(lots):
 
 def handler(event, context):
     try:
-        return {"statusCode": 200, "headers": {"content-type": "application/json"}, "body": json.dumps(compute_stats(_all()), default=_num)}
+        path_params = event.get("pathParameters") or {}
+        lot_id = path_params.get("id")
+        if lot_id:
+            global _t
+            _t = _t or boto3.resource("dynamodb").Table(TABLE)
+            res = _t.get_item(Key={"id": lot_id})
+            item = res.get("Item")
+            if not item:
+                return {
+                    "statusCode": 404,
+                    "headers": {
+                        "content-type": "application/json",
+                        "access-control-allow-origin": "*"
+                    },
+                    "body": json.dumps({"error": "lot not found"})
+                }
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "content-type": "application/json",
+                    "access-control-allow-origin": "*",
+                    "cache-control": "public, max-age=300, stale-while-revalidate=600"
+                },
+                "body": json.dumps(item, default=_num)
+            }
+
+        precomputed = _get_precomputed_stats()
+        stats_data = precomputed if precomputed is not None else compute_stats(_all())
+        return {
+            "statusCode": 200,
+            "headers": {
+                "content-type": "application/json",
+                "access-control-allow-origin": "*",
+                "cache-control": "public, max-age=60, stale-while-revalidate=300"
+            },
+            "body": json.dumps(stats_data, default=_num)
+        }
     except Exception as e:
         print("stats error:", repr(e)[:300])
-        return {"statusCode": 502, "headers": {"content-type": "application/json"}, "body": json.dumps({"error": "stats failed"})}
+        return {"statusCode": 502, "headers": {"content-type": "application/json", "access-control-allow-origin": "*"}, "body": json.dumps({"error": "stats failed"})}
+

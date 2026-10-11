@@ -9,6 +9,7 @@ All crypto uses Python's standard library only (no external packages):
   - PBKDF2-HMAC-SHA256 for password hashing
   - HMAC-SHA256 for JWT signing (HS256)
 """
+from __future__ import annotations
 import base64, hashlib, hmac, json, os, re, time, urllib.request, uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -20,6 +21,31 @@ GOOGLE_AUD = os.environ.get("GOOGLE_CLIENT_ID", "")  # set in template.yaml para
 TOKEN_TTL  = 60 * 60 * 24 * 30  # 30 days in seconds
 
 _ddb = None
+_ssm = None
+
+def _get_ssm_client():
+    global _ssm
+    if not _ssm:
+        _ssm = boto3.client("ssm")
+    return _ssm
+
+_CACHED_SECRET = None
+def _jwt_secret() -> str:
+    global _CACHED_SECRET
+    if _CACHED_SECRET is not None:
+        return _CACHED_SECRET
+    val = SECRET
+    if val.startswith("/") or val.startswith("arn:aws:ssm:"):
+        try:
+            res = _get_ssm_client().get_parameter(Name=val, WithDecryption=True)
+            _CACHED_SECRET = res["Parameter"]["Value"]
+            return _CACHED_SECRET
+        except Exception as e:
+            print("Failed to fetch JWT secret from SSM:", repr(e))
+            _CACHED_SECRET = val
+            return _CACHED_SECRET
+    _CACHED_SECRET = val
+    return _CACHED_SECRET
 
 def _table():
     global _ddb
@@ -41,13 +67,13 @@ def _make_jwt(payload: dict) -> str:
     payload["exp"] = int(time.time()) + TOKEN_TTL
     payload["iat"] = int(time.time())
     body = _b64u(json.dumps(payload).encode())
-    sig  = _b64u(hmac.new(SECRET.encode(), f"{header}.{body}".encode(), hashlib.sha256).digest())
+    sig  = _b64u(hmac.new(_jwt_secret().encode(), f"{header}.{body}".encode(), hashlib.sha256).digest())
     return f"{header}.{body}.{sig}"
 
 def _verify_jwt(token: str) -> dict | None:
     try:
         h, b, s = token.split(".")
-        expected = _b64u(hmac.new(SECRET.encode(), f"{h}.{b}".encode(), hashlib.sha256).digest())
+        expected = _b64u(hmac.new(_jwt_secret().encode(), f"{h}.{b}".encode(), hashlib.sha256).digest())
         if not hmac.compare_digest(s, expected):
             return None
         payload = json.loads(_b64ud(b))
@@ -164,6 +190,9 @@ def _register(b: dict):
         "name":       name,
         "avatar":     "",
         "provider":   "email",
+        "xp":         0,
+        "leaderboard_key": "national",
+        "city":       "delhi",
         "password_hash": _hash_pw(password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -216,6 +245,9 @@ def _google_auth(b: dict):
             "name":       name,
             "avatar":     avatar,
             "provider":   "google",
+            "xp":         0,
+            "leaderboard_key": "national",
+            "city":       "delhi",
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         _put_user(user)

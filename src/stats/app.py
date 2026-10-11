@@ -8,6 +8,7 @@ from decimal import Decimal
 import boto3
 
 LOTS_TABLE = os.environ.get("LOTS_TABLE", "")
+AGGREGATES_TABLE = os.environ.get("AGGREGATES_TABLE", "")
 
 _t = None
 
@@ -19,9 +20,48 @@ def _table():
     return _t
 
 
+def _query_aggregates():
+    """Queries pre-aggregated cell hotspots from AggregatesTable TypeIndex in O(1) time."""
+    tbl_name = AGGREGATES_TABLE or os.environ.get("AGGREGATES_TABLE", "")
+    if not tbl_name:
+        return None
+    try:
+        from boto3.dynamodb.conditions import Key
+        agg_tbl = boto3.resource("dynamodb").Table(tbl_name)
+        r = agg_tbl.query(
+            IndexName="TypeIndex",
+            KeyConditionExpression=Key("aggregate_type").eq("cell")
+        )
+        items = r.get("Items", [])
+        if not items:
+            return None
+        hotspots = []
+        total_lots = 0
+        for it in items:
+            l_cnt = int(it.get("lot_count", 0))
+            h_cnt = int(it.get("hazard_count", 0))
+            total_lots += l_cnt
+            hotspots.append({
+                "lat": float(it["lat"]),
+                "lon": float(it["lon"]),
+                "lot_count": l_cnt,
+                "item_count": int(it.get("item_count", 0)),
+                "hazard_count": h_cnt,
+                "has_hazard": h_cnt > 0,
+            })
+        hotspots.sort(key=lambda x: x["lot_count"], reverse=True)
+        return hotspots, total_lots
+    except Exception as exc:
+        print("Aggregate cells query failed:", repr(exc))
+        return None
+
+
+
 def _scan_all():
-    """Full table scan, handles pagination."""
-    items, kw = [], {}
+    """Full table scan, handles pagination with projection to minimize network & memory transfer."""
+    items, kw = [], {
+        "ProjectionExpression": "cell_lat, cell_lon, items, hazards, mock"
+    }
     while True:
         r = _table().scan(**kw)
         items += r.get("Items", [])
@@ -70,6 +110,7 @@ def _json(status, body):
         "headers": {
             "content-type": "application/json",
             "access-control-allow-origin": "*",
+            "cache-control": "public, max-age=60, stale-while-revalidate=300",
         },
         "body": json.dumps(body, default=_default),
     }
@@ -77,9 +118,15 @@ def _json(status, body):
 
 def handler(event, _context):
     try:
+        agg_res = _query_aggregates()
+        if agg_res is not None:
+            hotspots, total_lots = agg_res
+            return _json(200, {"hotspots": hotspots, "total_lots": total_lots})
+
         lots = _scan_all()
         hotspots = _aggregate(lots)
         return _json(200, {"hotspots": hotspots, "total_lots": len(lots)})
     except Exception as exc:
         print("hotspots error:", repr(exc))
         return _json(500, {"error": "internal error"})
+

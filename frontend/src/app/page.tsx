@@ -14,6 +14,12 @@ import LevelUpModal from "@/components/gamification/LevelUpModal";
 import LuckySpinModal from "@/components/gamification/LuckySpinModal";
 import DailyChallengesWidget from "@/components/gamification/DailyChallengesWidget";
 import { get, set } from "idb-keyval";
+import {
+  executeScan,
+  pollScanJob,
+  getPersistedActiveJob,
+  clearPersistedActiveJob,
+} from "@/utils/apiClient";
 
 export interface QueuedScan {
   id: string;
@@ -31,6 +37,9 @@ function Home() {
   const { lang, setLang, t, speak } = useLanguage();
   const { recordScanReward } = useGamification();
   const [loading, setLoading] = useState(false);
+  const [scanProgressStage, setScanProgressStage] = useState<"uploading" | "queued" | "processing" | "completed" | null>(null);
+  const [scanProgressDetail, setScanProgressDetail] = useState<string | null>(null);
+  const abortControllerRef = React.useRef<AbortController | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
@@ -64,6 +73,37 @@ function Home() {
       { timeout: 10000, maximumAge: 60000 }
     );
     refreshQueue();
+
+    // Recover in-flight scan job after page refresh
+    const activeJobId = getPersistedActiveJob();
+    if (activeJobId && (typeof navigator === "undefined" || navigator.onLine)) {
+      setLoading(true);
+      setScanProgressStage("processing");
+      setScanProgressDetail("Resuming e-waste analysis from active session…");
+      pollScanJob(activeJobId, undefined, (stage, detail) => {
+        setScanProgressStage(stage);
+        if (detail) setScanProgressDetail(detail);
+      })
+        .then((scanData) => {
+          setResult(scanData);
+          if (scanData?.type === "result") {
+            recordScanReward(scanData, {
+              hasCoords: false,
+              userWeightProvided: false,
+              isOfflineSync: false,
+            });
+          }
+        })
+        .catch((err) => {
+          console.warn("Could not resume active scan job:", err);
+          clearPersistedActiveJob();
+        })
+        .finally(() => {
+          setLoading(false);
+          setScanProgressStage(null);
+          setScanProgressDetail(null);
+        });
+    }
 
     // Feature F3 – auto-sync when network returns
     const handleOnline = async () => {
@@ -131,16 +171,22 @@ function Home() {
     if (user_weight_g) payload.user_weight_g = user_weight_g;
 
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 40000);
+    abortControllerRef.current = ctrl;
+
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/agent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: ctrl.signal,
+      const scanData = await executeScan({
+        b64,
+        mime,
+        lang,
+        coords: coords || undefined,
+        user_weight_g,
+        abortSignal: ctrl.signal,
+        onProgress: (stage, detail) => {
+          setScanProgressStage(stage);
+          if (detail) setScanProgressDetail(detail);
+        },
       });
-      if (!res.ok) throw new Error(String(res.status));
-      const scanData = await res.json();
+
       setResult(scanData);
       if (scanData?.type === "result") {
         recordScanReward(scanData, {
@@ -155,19 +201,33 @@ function Home() {
         err?.name === "AbortError" ||
         (err instanceof TypeError && err.message?.toLowerCase().includes("fetch"))
       ) {
-        const q: QueuedScan[] = (await get("offlineQueue")) || [];
-        const updated = [...q, lotToQueue];
-        await set("offlineQueue", updated);
-        setQueueItems(updated);
-        setQueueCount(updated.length);
-        setResult({ type: "offline", queuedLot: lotToQueue, queuedCount: updated.length });
+        if (!ctrl.signal.aborted) {
+          const q: QueuedScan[] = (await get("offlineQueue")) || [];
+          const updated = [...q, lotToQueue];
+          await set("offlineQueue", updated);
+          setQueueItems(updated);
+          setQueueCount(updated.length);
+          setResult({ type: "offline", queuedLot: lotToQueue, queuedCount: updated.length });
+        }
       } else {
         setResult({ type: "error" });
       }
     } finally {
-      clearTimeout(timer);
+      abortControllerRef.current = null;
       setLoading(false);
+      setScanProgressStage(null);
+      setScanProgressDetail(null);
     }
+  };
+
+  const cancelScan = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    clearPersistedActiveJob();
+    setLoading(false);
+    setScanProgressStage(null);
+    setScanProgressDetail(null);
   };
 
   const syncNextQueueItem = async () => {
@@ -182,30 +242,14 @@ function Home() {
     setSyncMessage(`Syncing lot 1 of ${q.length}…`);
     const item = q[0];
 
-    const payload: any = {
-      image_b64: item.b64,
-      media_type: item.mime,
-      language: item.language || lang,
-    };
-    if (item.lat !== undefined && item.lon !== undefined) {
-      payload.lat = item.lat;
-      payload.lon = item.lon;
-    }
-    if (item.user_weight_g) {
-      payload.user_weight_g = item.user_weight_g;
-    }
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 40000);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/agent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: ctrl.signal,
+      const data = await executeScan({
+        b64: item.b64,
+        mime: item.mime,
+        lang: item.language || lang,
+        coords: item.lat !== undefined && item.lon !== undefined ? { lat: item.lat, lon: item.lon } : undefined,
+        user_weight_g: item.user_weight_g,
       });
-      if (!res.ok) throw new Error("Sync returned status " + res.status);
-      const data = await res.json();
 
       const remaining = q.slice(1);
       await set("offlineQueue", remaining);
@@ -225,7 +269,6 @@ function Home() {
       console.error("Failed to sync lot:", err);
       alert("Sync failed. Check connection and try again.");
     } finally {
-      clearTimeout(timer);
       setSyncing(false);
       setSyncMessage(null);
     }
@@ -248,28 +291,15 @@ function Home() {
         const item = q[i];
         setSyncMessage(`Syncing lot ${i + 1} of ${q.length}…`);
 
-        const payload: any = {
-          image_b64: item.b64,
-          media_type: item.mime,
-          language: item.language || lang,
-        };
-        if (item.lat !== undefined && item.lon !== undefined) {
-          payload.lat = item.lat;
-          payload.lon = item.lon;
-        }
-        if (item.user_weight_g) {
-          payload.user_weight_g = item.user_weight_g;
-        }
-
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/agent`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+        const data = await executeScan({
+          b64: item.b64,
+          mime: item.mime,
+          lang: item.language || lang,
+          coords: item.lat !== undefined && item.lon !== undefined ? { lat: item.lat, lon: item.lon } : undefined,
+          user_weight_g: item.user_weight_g,
         });
 
-        if (!res.ok) throw new Error("Sync failed on item " + (i + 1));
-        lastResult = await res.json();
-
+        lastResult = data;
         remaining = remaining.slice(1);
         await set("offlineQueue", remaining);
         setQueueItems(remaining);
@@ -455,13 +485,26 @@ function Home() {
                     }}
                   >
                     {loading ? (
-                      <>
-                        <div style={{ position: "relative", width: 22, height: 22 }}>
-                          <div className="orbit-dot !w-2 !h-2" />
-                          <div className="orbit-dot !w-2 !h-2" />
+                      <div className="flex flex-col items-center justify-center py-0.5">
+                        <div className="flex items-center gap-2">
+                          <div style={{ position: "relative", width: 20, height: 20 }}>
+                            <div className="orbit-dot !w-2 !h-2" />
+                            <div className="orbit-dot !w-2 !h-2" />
+                          </div>
+                          <span>
+                            {scanProgressStage === "uploading"
+                              ? "📤 Uploading Photo…"
+                              : scanProgressStage === "queued"
+                              ? "⏳ Queued for Processing…"
+                              : "✨ AI Analyzing e-Waste…"}
+                          </span>
                         </div>
-                        <span>{t("analyzing")}</span>
-                      </>
+                        {scanProgressDetail && (
+                          <span className="text-[0.72rem] text-emerald-300 font-normal mt-0.5">
+                            {scanProgressDetail}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <>
                         <span style={{ fontSize: "1.25rem" }}>✨</span>
@@ -473,7 +516,17 @@ function Home() {
                     )}
                   </button>
 
-                  {!capturedPhoto && (
+                  {loading && (
+                    <button
+                      type="button"
+                      onClick={cancelScan}
+                      className="text-xs text-rose-400 hover:text-rose-300 underline mt-2.5 text-center w-full transition-colors flex items-center justify-center gap-1"
+                    >
+                      <span>✖</span> <span>Cancel Scan</span>
+                    </button>
+                  )}
+
+                  {!capturedPhoto && !loading && (
                     <p className="text-center text-xs mt-2.5" style={{ color: "var(--text-muted)" }}>
                       {t("takePhotoHint")}
                     </p>

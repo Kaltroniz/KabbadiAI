@@ -1,7 +1,6 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
-import confetti from "canvas-confetti";
 import {
   LEVEL_TIERS,
   ALL_BADGES,
@@ -68,8 +67,10 @@ interface GamificationCtx {
 
 const GamificationContext = createContext<GamificationCtx | undefined>(undefined);
 
-export function fireConfettiBurst() {
+export async function fireConfettiBurst() {
+  if (typeof window === "undefined") return;
   try {
+    const confetti = (await import("canvas-confetti")).default;
     confetti({
       particleCount: 80,
       spread: 70,
@@ -79,8 +80,10 @@ export function fireConfettiBurst() {
   } catch {}
 }
 
-export function fireSuperConfetti() {
+export async function fireSuperConfetti() {
+  if (typeof window === "undefined") return;
   try {
+    const confetti = (await import("canvas-confetti")).default;
     const end = Date.now() + 1200;
     const interval: any = setInterval(() => {
       if (Date.now() > end) return clearInterval(interval);

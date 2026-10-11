@@ -1,8 +1,10 @@
 "use client";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import collectionCentersData from "@/data/collection_centers.json";
+
+const TILE_URL = process.env.NEXT_PUBLIC_MAP_TILE_URL || "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const TILE_ATTRIBUTION = process.env.NEXT_PUBLIC_MAP_TILE_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 export interface Hotspot {
   lat: number;
@@ -80,6 +82,18 @@ export default function HotspotMap({
   const centerLayerRef = useRef<L.LayerGroup | null>(null);
   const userLayerRef = useRef<L.LayerGroup | null>(null);
   const hasCenteredOnUserRef = useRef(false);
+  const [centers, setCenters] = useState<CollectionCenter[]>([]);
+
+  // Lazy load collection centers on demand
+  useEffect(() => {
+    if (showCenters && centers.length === 0) {
+      import("@/data/collection_centers.json").then((mod) => {
+        setCenters(mod.default as CollectionCenter[]);
+      }).catch((err) => {
+        console.warn("Could not lazy-load collection centers:", err);
+      });
+    }
+  }, [showCenters, centers.length]);
 
   // 1. Initialize Map and Tile Layer ONCE
   useEffect(() => {
@@ -97,9 +111,10 @@ export default function HotspotMap({
     });
     mapInstanceRef.current = map;
 
-    // Dark-mode OpenStreetMap tiles (no API keys required)
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    // Configurable production tiles (defaults to CartoCDN dark tiles with fallback)
+    L.tileLayer(TILE_URL, {
+      attribution: TILE_ATTRIBUTION,
+      subdomains: "abcd",
       maxZoom: 19,
       className: "dark-map-tiles",
     }).addTo(map);
@@ -198,7 +213,7 @@ export default function HotspotMap({
 
     layer.clearLayers();
 
-    if (showCenters) {
+    if (showCenters && centers.length > 0) {
       const pointIcon = L.divIcon({
         className: "custom-leaflet-marker",
         html: `<div class="center-marker-badge center-marker-point" title="Drop-off Collection Point (Approximate Area)"><span>📍</span></div>`,
@@ -215,7 +230,6 @@ export default function HotspotMap({
         popupAnchor: [0, -10],
       });
 
-      const centers = collectionCentersData as CollectionCenter[];
       const jittered = getJitteredCenters(centers);
 
       jittered.forEach((center) => {
@@ -275,7 +289,7 @@ export default function HotspotMap({
         marker.addTo(layer);
       });
     }
-  }, [showCenters]);
+  }, [showCenters, centers]);
 
   return (
     <div
